@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Streamlit
+.streamlit/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Outputs
+*.pdf
+*.png
+*.log
+
+# Secrets
+.env
