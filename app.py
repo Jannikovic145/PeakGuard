@@ -281,8 +281,47 @@ if st.button("PDF generieren", type="primary"):
 
     try:
         # --- Canonicalize columns so report_builder findet die Daten robust ---
+        # --- Canonicalize columns so report_builder findet die Daten robust ---
         df2 = df.copy()
 
+        import re
+        import numpy as np
+        import pandas as pd
+
+        def _parse_num_series(s: pd.Series) -> pd.Series:
+            """
+            Robust gegen:
+            - Dezimalkomma (12,34)
+            - Tausenderpunkte (1.234,56)
+            - Einheiten/Strings ("12,3 kW", "123 W")
+            - NBSP/Spaces
+            """
+            if pd.api.types.is_numeric_dtype(s):
+                return pd.to_numeric(s, errors="coerce")
+
+            x = s.astype("string")
+
+            # NBSP & normale Spaces raus
+            x = x.str.replace("\u00A0", "", regex=False).str.replace(" ", "", regex=False)
+
+            # Alles außer Zahlen, . , - und + entfernen (Einheiten etc.)
+            x = x.str.replace(r"[^0-9\.,\-\+]", "", regex=True)
+
+            # Wenn es wie deutsches Format aussieht: 1.234,56 -> 1234.56
+            looks_de = x.str.contains(r"\d{1,3}(\.\d{3})+,\d+", regex=True, na=False).mean() > 0.05
+            if looks_de:
+                x = x.str.replace(".", "", regex=False)
+                x = x.str.replace(",", ".", regex=False)
+            else:
+                # Sonst: wenn nur Komma als Dezimaltrenner vorkommt -> Komma zu Punkt
+                has_comma_decimal = x.str.contains(r"\d+,\d+", regex=True, na=False).mean() > 0.05
+                has_dot_decimal = x.str.contains(r"\d+\.\d+", regex=True, na=False).mean() > 0.05
+                if has_comma_decimal and not has_dot_decimal:
+                    x = x.str.replace(",", ".", regex=False)
+
+            return pd.to_numeric(x, errors="coerce")
+
+        # Einheit -> Faktor (Auto wird später anhand Median geschätzt)
         unit = (power_unit or "Auto").lower().strip()
         unit_factor = 1.0
         if unit == "w":
@@ -291,32 +330,40 @@ if st.button("PDF generieren", type="primary"):
             unit_factor = 1.0
 
         if power_format.startswith("Gesamtleistung") and power_col is not None:
-            x = pd.to_numeric(df2[power_col], errors="coerce")
+            x = _parse_num_series(df2[power_col])
+
             if unit == "auto":
                 med = float(x.dropna().median()) if x.notna().any() else 0.0
                 unit_factor = (1.0 / 1000.0) if med > 200.0 else 1.0
+
             df2["power_total"] = x * unit_factor
+
         else:
             if power_cols is None or len(power_cols) != 3:
                 raise ValueError("Bitte 3 Phasen-Leistungsspalten wählen.")
-            p1 = pd.to_numeric(df2[power_cols[0]], errors="coerce")
-            p2 = pd.to_numeric(df2[power_cols[1]], errors="coerce")
-            p3 = pd.to_numeric(df2[power_cols[2]], errors="coerce")
+
+            p1 = _parse_num_series(df2[power_cols[0]])
+            p2 = _parse_num_series(df2[power_cols[1]])
+            p3 = _parse_num_series(df2[power_cols[2]])
+
             if unit == "auto":
                 med = float(pd.concat([p1, p2, p3]).dropna().median()) if (p1.notna().any() or p2.notna().any() or p3.notna().any()) else 0.0
                 unit_factor = (1.0 / 1000.0) if med > 200.0 else 1.0
+
             df2["power_1"] = p1 * unit_factor
             df2["power_2"] = p2 * unit_factor
             df2["power_3"] = p3 * unit_factor
 
-        # cosphi mapping
+        # cosphi mapping (robust parsen + clamp)
         if include_reactive and pf_cols is not None:
             if power_format.startswith("Gesamtleistung") and len(pf_cols) == 1:
-                df2["cosphi_total"] = pd.to_numeric(df2[pf_cols[0]], errors="coerce")
+                c = _parse_num_series(df2[pf_cols[0]]).clip(lower=0.0, upper=1.0)
+                df2["cosphi_total"] = c
             elif (not power_format.startswith("Gesamtleistung")) and len(pf_cols) == 3:
-                df2["cosphi_1"] = pd.to_numeric(df2[pf_cols[0]], errors="coerce")
-                df2["cosphi_2"] = pd.to_numeric(df2[pf_cols[1]], errors="coerce")
-                df2["cosphi_3"] = pd.to_numeric(df2[pf_cols[2]], errors="coerce")
+                df2["cosphi_1"] = _parse_num_series(df2[pf_cols[0]]).clip(lower=0.0, upper=1.0)
+                df2["cosphi_2"] = _parse_num_series(df2[pf_cols[1]]).clip(lower=0.0, upper=1.0)
+                df2["cosphi_3"] = _parse_num_series(df2[pf_cols[2]]).clip(lower=0.0, upper=1.0)
+
 
         with st.expander("Debug: Canonical-Spalten vorhanden?"):
             st.write([c for c in ["power_total", "power_1", "power_2", "power_3", "cosphi_total", "cosphi_1", "cosphi_2", "cosphi_3"] if c in df2.columns])

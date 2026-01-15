@@ -356,17 +356,26 @@ def build_pdf_report(
 
     rows_other: TableData = [["Szenario", "Cap", "Peak nachher", "Benutzungsdauer", "Kosten nachher", "Einsparung"]]
     for s in pkg_scenarios:
+    # Prozentuale Reduzierung relativ zum bisherigen 15-min Peak
+        red_pct = 0.0
+        if peak_15_kw > 0:
+            red_pct = (1.0 - (float(s.peak_after_kw) / float(peak_15_kw))) * 100.0
+
+        peak_cell = Paragraph(
+            f"{fmt_num(s.peak_after_kw, 1, 'kW')}<br/><font size=8>Reduzierung: {fmt_pct(red_pct, 1)}</font>",
+            styles["BodyText"],
+        )
+
         rows_other.append(
             [
                 s.cap_label,
                 fmt_num(s.cap_kw, 1, "kW"),
-                fmt_num(s.peak_after_kw, 1, "kW"),
+                peak_cell,
                 f"{fmt_num(s.util_hours_after, 0, 'h/a')} ({s.tariff_label_after})",
                 fmt_num(s.cost_after, 0, "€/a"),
                 fmt_num(s.savings_eur, 0, "€/a"),
             ]
         )
-
     story.append(
         Table(
             rows_other,
@@ -1393,6 +1402,9 @@ def fmt_num(x: Optional[NumberLike], decimals: int, suffix: str) -> str:
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{s} {suffix}".strip()
 
+def fmt_pct(x: float, decimals: int = 1) -> str:
+    s = f"{x:.{decimals}f}".replace(".", ",")
+    return f"{s} %"
 
 def _tempfile_path(filename: str) -> str:
     import tempfile
