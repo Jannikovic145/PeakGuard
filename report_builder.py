@@ -1,4 +1,4 @@
-# report_builder.py  (v3.0: Handlungsempfehlungen-Seite + 15-min Demand Logik, Pylance-sicher)
+# report_builder.py (v3.1: Optimiertes Design & moderne Visualisierungen)
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,11 +10,13 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.patches import Circle
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
@@ -26,7 +28,65 @@ from reportlab.platypus import (
     Flowable,
 )
 
-# Requested: Gold = P85
+# ============================================================================
+# DESIGN SYSTEM - PeakGuard Corporate Identity
+# ============================================================================
+class PeakGuardDesign:
+    # KORRIGIERTE PeakGuard Farben
+    PRIMARY = colors.HexColor("#0f1729")      # PeakGuard Dunkelblau
+    ACCENT = colors.HexColor("#0da2e7")       # PeakGuard Hellblau
+    SUCCESS = colors.HexColor("#28A745")      # Erfolg Grün
+    WARNING = colors.HexColor("#FFC107")      # Warnung Gelb
+    DANGER = colors.HexColor("#DC3545")       # Kritisch Rot
+    
+    DARK = colors.HexColor("#1A1A1A")
+    GRAY_DARK = colors.HexColor("#4A4A4A")
+    GRAY = colors.HexColor("#6C757D")
+    GRAY_LIGHT = colors.HexColor("#E9ECEF")
+    GRAY_LIGHTER = colors.HexColor("#F8F9FA")
+    WHITE = colors.white
+    
+    # Matplotlib Theme (aktualisiert)
+    MPL_COLORS = {
+        'primary': '#0da2e7',      # Hellblau für Linien
+        'primary_dark': '#0f1729',  # Dunkelblau für Text/Akzente
+        'accent': '#FF6B35',
+        'success': '#28A745',
+        'warning': '#FFC107',
+        'danger': '#DC3545',
+        'grid': '#E9ECEF',
+        'text': '#1A1A1A',
+        'background': '#FFFFFF'
+    }
+    
+    @staticmethod
+    def setup_mpl_theme():
+        plt.rcParams.update({
+            'figure.facecolor': '#FFFFFF',
+            'axes.facecolor': '#FAFBFC',
+            'axes.edgecolor': '#E9ECEF',
+            'axes.labelcolor': '#1A1A1A',
+            'axes.grid': True,
+            'grid.color': '#E9ECEF',
+            'grid.linewidth': 0.5,
+            'grid.alpha': 0.6,
+            'xtick.color': '#1A1A1A',
+            'ytick.color': '#1A1A1A',
+            'text.color': '#1A1A1A',
+            'font.size': 10,
+            'axes.titlesize': 12,
+            'axes.labelsize': 10,
+            'xtick.labelsize': 9,
+            'ytick.labelsize': 9,
+            'legend.fontsize': 9,
+            'figure.titlesize': 14,
+            'lines.linewidth': 2.0,
+            'axes.spines.top': False,
+            'axes.spines.right': False,
+        })
+
+PeakGuardDesign.setup_mpl_theme()
+
 GOAL_TO_QUANTILE: Dict[str, float] = {"Bronze": 0.95, "Silber": 0.90, "Gold": 0.85}
 
 NumberLike = Union[int, float, np.number]
@@ -58,9 +118,9 @@ class UnbalanceResult:
     available: bool
     share_over: float = 0.0
     max_unbalance_kw: float = 0.0
-    dominant_phase: str = "—"          # e.g. "L3 (55%)"
-    dominant_phase_name: str = "—"     # e.g. "L3"
-    dominant_phase_share: float = 0.0  # 0..1
+    dominant_phase: str = "—"
+    dominant_phase_name: str = "—"
+    dominant_phase_share: float = 0.0
     recommendation: str = ""
 
 
@@ -74,17 +134,468 @@ class BlkResult:
     assessment: str = ""
 
 
-# -----------------------------
-# v3.0 Recommendation model
-# -----------------------------
 @dataclass(frozen=True)
 class Recommendation:
     code: str
     category: str
     trigger: str
     action: str
-    priority: str  # "Quick Win" | "Investition erforderlich" | ""
+    priority: str
 
+
+# ============================================================================
+# CUSTOM STYLES
+# ============================================================================
+def get_custom_styles():
+    styles = getSampleStyleSheet()
+    
+    styles.add(ParagraphStyle(
+        name='CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=20,
+        textColor=PeakGuardDesign.PRIMARY,
+        spaceAfter=8*mm,
+        fontName='Helvetica-Bold',
+        alignment=TA_LEFT
+    ))
+    
+    styles.add(ParagraphStyle(
+        name='CustomHeading2',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=PeakGuardDesign.DARK,
+        spaceBefore=4*mm,
+        spaceAfter=2*mm,
+        fontName='Helvetica-Bold'
+    ))
+    
+    styles.add(ParagraphStyle(
+        name='CustomHeading3',
+        parent=styles['Heading3'],
+        fontSize=12,
+        textColor=PeakGuardDesign.GRAY_DARK,
+        spaceBefore=3*mm,
+        spaceAfter=2*mm,
+        fontName='Helvetica-Bold'
+    ))
+    
+    styles.add(ParagraphStyle(
+        name='CustomBody',
+        parent=styles['BodyText'],
+        fontSize=9,
+        textColor=PeakGuardDesign.DARK,
+        leading=12
+    ))
+    
+    return styles
+
+# ============================================================================
+# TABELLEN-HELPER (mit modernem Design)
+# ============================================================================
+def create_info_table(data: TableData) -> Table:
+    """Erstellt Info-Tabelle (Metadaten) mit modernem Design"""
+    return Table(
+        data,
+        colWidths=[45 * mm, 135 * mm],
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), PeakGuardDesign.GRAY_LIGHTER),
+            ('TEXTCOLOR', (0, 0), (0, -1), PeakGuardDesign.GRAY_DARK),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOX', (0, 0), (-1, -1), 0.5, PeakGuardDesign.GRAY),
+            ('LINEBELOW', (0, 0), (-1, -2), 0.25, PeakGuardDesign.GRAY_LIGHT),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ])
+    )
+
+
+def create_data_table(data: TableData, highlight_last: bool = False) -> Table:
+    """Erstellt Daten-Tabelle mit optionaler Hervorhebung der letzten Zeile"""
+    styles_list = [
+        ('BACKGROUND', (0, 0), (0, -1), PeakGuardDesign.GRAY_LIGHTER),
+        ('TEXTCOLOR', (0, 0), (0, -1), PeakGuardDesign.GRAY_DARK),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('BOX', (0, 0), (-1, -1), 0.5, PeakGuardDesign.GRAY),
+        ('LINEBELOW', (0, 0), (-1, -2), 0.25, PeakGuardDesign.GRAY_LIGHT),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # GEÄNDERT: TOP -> MIDDLE
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),     # ERHÖHT für besseren Abstand
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]
+    
+    if highlight_last:
+        styles_list.extend([
+            ('BACKGROUND', (0, -1), (-1, -1), PeakGuardDesign.SUCCESS),
+            ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('TOPPADDING', (0, -1), (-1, -1), 10),    # EXTRA Padding für grüne Zeile
+            ('BOTTOMPADDING', (0, -1), (-1, -1), 10),
+        ])
+    
+    return Table(
+        data,
+        colWidths=[75 * mm, 105 * mm],  # MEHR Platz rechts
+        style=TableStyle(styles_list)
+    )
+
+
+def create_scenario_table(data: TableData) -> Table:
+    """Erstellt Szenario-Vergleichstabelle"""
+    return Table(
+        data,
+        colWidths=[38 * mm, 25 * mm, 32 * mm, 35 * mm, 25 * mm, 25 * mm],
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), PeakGuardDesign.PRIMARY),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('BOX', (0, 0), (-1, -1), 0.5, PeakGuardDesign.GRAY),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, PeakGuardDesign.GRAY_LIGHTER]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ])
+    )
+
+
+def create_recommendations_table(data: TableData) -> Table:
+    """Erstellt Handlungsempfehlungen-Tabelle"""
+    return Table(
+        data,
+        colWidths=[45 * mm, 55 * mm, 80 * mm],
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), PeakGuardDesign.DARK),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOX', (0, 0), (-1, -1), 0.5, PeakGuardDesign.GRAY),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.25, PeakGuardDesign.GRAY_LIGHT),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ])
+    )
+
+
+def create_peaks_table(data: TableData) -> Table:
+    """Erstellt Top-Peaks-Tabelle"""
+    return Table(
+        data,
+        colWidths=[10 * mm, 32 * mm, 34 * mm, 34 * mm, 34 * mm],
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), PeakGuardDesign.ACCENT),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOX', (0, 0), (-1, -1), 0.5, PeakGuardDesign.GRAY),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.25, PeakGuardDesign.GRAY_LIGHT),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, PeakGuardDesign.GRAY_LIGHTER]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (3, 1), (4, -1), 'RIGHT'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ])
+    )
+
+
+# ============================================================================
+# VISUALISIERUNGEN (Optimiert mit PeakGuard-Design)
+# ============================================================================
+def make_timeseries_plot(df_15: pd.DataFrame, cap_kw: float) -> Path:
+    """Zeitreihen-Plot mit Cap-Linie"""
+    tmp = Path(_tempfile_path("timeseries.png"))
+    idx = cast(pd.DatetimeIndex, df_15.index)
+    y = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce")
+
+    fig, ax = plt.subplots(figsize=(12, 4.5), facecolor='white')
+    
+    # Hauptlinie
+    ax.plot(idx, y, color=PeakGuardDesign.MPL_COLORS['primary'], linewidth=2, label='Leistung (15-min)')
+    
+    # Cap-Linie
+    ax.axhline(y=cap_kw, color=PeakGuardDesign.MPL_COLORS['danger'], 
+               linestyle='--', linewidth=2, label=f'Cap ({cap_kw:.1f} kW)', alpha=0.8)
+    
+    # Überschreitungen farbig markieren
+    over_mask = y > cap_kw
+    if over_mask.any():
+        ax.fill_between(idx, y, cap_kw, where=over_mask.values, #type: ignore
+                    color=PeakGuardDesign.MPL_COLORS['danger'], alpha=0.15)
+    
+    ax.set_ylabel('Leistung (kW)', fontweight='bold', fontsize=11)
+    ax.set_xlabel('Zeitraum', fontweight='bold', fontsize=11)
+    ax.set_title('Lastgang-Verlauf mit Peak-Shaving Cap', fontweight='bold', fontsize=12, pad=15)
+    ax.legend(loc='upper right', framealpha=0.95)
+    ax.tick_params(axis='x', rotation=45)
+    
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+
+def make_duration_curve(df_15: pd.DataFrame, cap_kw: float) -> Path:
+    """Jahresdauerlinie mit Percentil-Markierungen"""
+    tmp = Path(_tempfile_path("duration.png"))
+    s = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce").dropna().sort_values(ascending=False).to_numpy(dtype=float)
+    n = int(len(s))
+    
+    if n == 0:
+        fig, ax = plt.subplots(figsize=(12, 4.5))
+        ax.text(0.5, 0.5, "Keine Daten verfügbar", ha="center", va="center", fontsize=14)
+        ax.axis("off")
+        plt.tight_layout()
+        plt.savefig(tmp, dpi=180, bbox_inches='tight')
+        plt.close()
+        return tmp
+
+    x = 100.0 * (np.arange(1, n + 1) / float(n))
+
+    fig, ax = plt.subplots(figsize=(12, 4.5), facecolor='white')
+    
+    # Hauptkurve
+    ax.plot(x, s, color=PeakGuardDesign.MPL_COLORS['primary'], linewidth=2.5, label='Leistung')
+    
+    # Cap-Linie (horizontal)
+    ax.axhline(y=cap_kw, color=PeakGuardDesign.MPL_COLORS['danger'], 
+               linestyle='--', linewidth=2.5, label=f'Cap ({cap_kw:.1f} kW)', alpha=0.9)
+    
+    # Percentil-WERTE berechnen (NICHT x-Position!)
+    p95_kw = float(np.percentile(s, 95))  # 95. Perzentil der LEISTUNG
+    p90_kw = float(np.percentile(s, 90))
+    p85_kw = float(np.percentile(s, 85))
+    
+    # Horizontale Linien für Bronze/Silber/Gold
+    ax.axhline(p95_kw, color='#CD7F32', linestyle=':', linewidth=2, 
+               alpha=0.8, label=f'P95 Bronze ({p95_kw:.1f} kW)')
+    ax.axhline(p90_kw, color='#C0C0C0', linestyle=':', linewidth=2, 
+               alpha=0.8, label=f'P90 Silber ({p90_kw:.1f} kW)')
+    ax.axhline(p85_kw, color='#FFD700', linestyle=':', linewidth=2, 
+               alpha=0.8, label=f'P85 Gold ({p85_kw:.1f} kW)')
+    
+    ax.set_ylabel('Leistung (kW)', fontweight='bold', fontsize=11)
+    ax.set_xlabel('Zeitanteil (%)', fontweight='bold', fontsize=11)
+    ax.set_title('Jahresdauerlinie (sortiert nach Leistung)', fontweight='bold', fontsize=12, pad=15)
+    ax.set_xlim(0, 100)
+    ax.legend(loc='upper right', framealpha=0.95, fontsize=8)
+    
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+def make_heatmap(df_15: pd.DataFrame) -> Path:
+    """Heatmap Wochentag x Stunde - AMPEL-FARBEN"""
+    tmp = Path(_tempfile_path("heatmap.png"))
+    idx = cast(pd.DatetimeIndex, df_15.index)
+    ts_np = idx.to_numpy(dtype="datetime64[ns]")
+
+    def _weekday(x: np.datetime64) -> int:
+        return int(pd.Timestamp(x).weekday())
+
+    def _hour(x: np.datetime64) -> int:
+        return int(pd.Timestamp(x).hour)
+
+    weekday = np.array([_weekday(x) for x in ts_np], dtype=int)
+    hour = np.array([_hour(x) for x in ts_np], dtype=int)
+
+    p = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce").to_numpy(dtype=float)
+    dfh = pd.DataFrame({"weekday": weekday, "hour": hour, "p": p})
+    pivot = dfh.pivot_table(index="weekday", columns="hour", values="p", aggfunc="mean")
+    pivot = pivot.reindex(index=[0, 1, 2, 3, 4, 5, 6], columns=list(range(24)))
+
+    vals = pivot.to_numpy(dtype=float)
+    
+    fig, ax = plt.subplots(figsize=(12, 4.5), facecolor='white')
+    
+    # AMPEL-FARBSKALA: Grün (niedrig) -> Gelb (mittel) -> Rot (hoch)
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.patches import Circle  # ← KORREKTER IMPORT!
+    
+    # Farbübergänge: Grün -> Gelbgrün -> Gelb -> Orange -> Rot
+    colors_list = [
+        '#2ECC71',  # Grün (niedrig)
+        '#A8E063',  # Hellgrün
+        '#F4D03F',  # Gelb (mittel)
+        '#F39C12',  # Orange
+        '#E74C3C'   # Rot (hoch)
+    ]
+    n_bins = 100
+    cmap = LinearSegmentedColormap.from_list('ampel', colors_list, N=n_bins)
+    
+    im = ax.imshow(vals, aspect='auto', cmap=cmap, interpolation='nearest')
+    
+    # Colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Ø Leistung (kW)', rotation=270, labelpad=20, fontweight='bold', fontsize=10)
+    
+    # Werte in Zellen - IMMER SCHWARZE SCHRIFT mit weißem Hintergrund für Lesbarkeit
+    for i in range(vals.shape[0]):
+        for j in range(vals.shape[1]):
+            if not np.isnan(vals[i, j]):
+                # Weißer Hintergrund-Kreis für bessere Lesbarkeit
+                circle = Circle((j, i), 0.35, color='white', alpha=0.8, zorder=10)
+                ax.add_patch(circle)
+                
+                # Schwarzer Text
+                ax.text(j, i, f"{vals[i, j]:.0f}", 
+                       ha="center", va="center", 
+                       color='black', fontsize=9, fontweight='bold', zorder=11)
+
+    ax.set_yticks(range(7))
+    ax.set_yticklabels(["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"], fontsize=10)
+    ax.set_xticks(range(24))
+    ax.set_xticklabels([f"{h:02d}" for h in range(24)], fontsize=9)
+    ax.set_xlabel("Stunde", fontweight='bold', fontsize=11)
+    ax.set_ylabel("Wochentag", fontweight='bold', fontsize=11)
+    ax.set_title("Lastprofil-Heatmap (Ø Leistung je Wochentag/Stunde)", 
+                 fontweight='bold', fontsize=12, pad=15)
+    
+    # Grid für bessere Orientierung
+    ax.set_xticks(np.arange(-.5, 24, 1), minor=True)
+    ax.set_yticks(np.arange(-.5, 7, 1), minor=True)
+    ax.grid(which="minor", color="white", linestyle='-', linewidth=1.5)
+    
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+def make_events_scatter(mod1: PeakEventsResult) -> Path:
+    """Scatter-Plot: Peak-Ereignisse Dauer vs. Verschiebe-Leistung"""
+    tmp = Path(_tempfile_path("events.png"))
+    ev = mod1.events_df
+
+    fig, ax = plt.subplots(figsize=(12, 4.5), facecolor='white')
+    
+    if ev.empty:
+        ax.text(0.5, 0.5, "Keine Peak-Ereignisse über Cap erkannt", 
+               ha="center", va="center", fontsize=14, color=PeakGuardDesign.MPL_COLORS['text'])
+        ax.axis("off")
+    else:
+        # Scatter mit Größe basierend auf max_shift_kw
+        scatter = ax.scatter(
+            ev["duration_min"], 
+            ev["max_shift_kw"],
+            s=ev["max_shift_kw"]*10,
+            c=ev["duration_min"],
+            cmap='YlOrRd',
+            alpha=0.6,
+            edgecolors=PeakGuardDesign.MPL_COLORS['text'],
+            linewidth=0.5
+        )
+        
+        cbar = plt.colorbar(scatter, ax=ax)
+        cbar.set_label('Dauer (min)', rotation=270, labelpad=20, fontweight='bold')
+        
+        ax.set_xlabel('Dauer des Peak-Ereignisses (min)', fontweight='bold', fontsize=11)
+        ax.set_ylabel('Max. benötigte Verschiebe-Leistung (kW)', fontweight='bold', fontsize=11)
+        ax.set_title('Peak-Ereignisse: Dauer vs. Verschiebe-Leistung', fontweight='bold', fontsize=12, pad=15)
+        
+        # Referenzlinien
+        ax.axvline(15, color=PeakGuardDesign.MPL_COLORS['success'], 
+                  linestyle='--', linewidth=1, alpha=0.5, label='Kurze Peaks (≤15 min)')
+        ax.axvline(60, color=PeakGuardDesign.MPL_COLORS['warning'], 
+                  linestyle='--', linewidth=1, alpha=0.5, label='Lange Peaks (≥60 min)')
+        ax.legend(loc='upper right', framealpha=0.95, fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+
+def make_blk_plot(df_15: pd.DataFrame) -> Path:
+    """Blindleistungs-Plot"""
+    tmp = Path(_tempfile_path("blk.png"))
+
+    q = pd.to_numeric(cast(pd.Series, df_15.get("q_kvar", pd.Series(index=df_15.index, dtype=float))), errors="coerce")
+    qlim = pd.to_numeric(cast(pd.Series, df_15.get("q_limit", pd.Series(index=df_15.index, dtype=float))), errors="coerce")
+
+    idx = cast(pd.DatetimeIndex, df_15.index)
+
+    fig, ax = plt.subplots(figsize=(12, 4.5), facecolor='white')
+    
+    ax.plot(idx, q, color=PeakGuardDesign.MPL_COLORS['primary'], 
+           linewidth=2, label='Q (kvar)', alpha=0.8)
+    ax.plot(idx, qlim, color=PeakGuardDesign.MPL_COLORS['danger'], 
+           linestyle='--', linewidth=2, label='Q-Limit (cosϕ=0,9)', alpha=0.8)
+    
+    # Überschreitungen markieren
+    over_mask = q > qlim
+    if over_mask.any():
+        ax.fill_between(idx, q, qlim, where=over_mask.values, #type: ignore
+                    color=PeakGuardDesign.MPL_COLORS['danger'], alpha=0.15)
+    
+    ax.set_ylabel('Blindleistung (kvar)', fontweight='bold', fontsize=11)
+    ax.set_xlabel('Zeitraum', fontweight='bold', fontsize=11)
+    ax.set_title('Blindleistungs-Verlauf mit cosϕ-Grenzwert', fontweight='bold', fontsize=12, pad=15)
+    ax.legend(loc='upper right', framealpha=0.95)
+    ax.tick_params(axis='x', rotation=45)
+    
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+# ============================================================================
+# HAUPTFUNKTION - PDF Report Builder
+# ============================================================================
+
+# ============================================================================
+# HEADER & FOOTER
+# ============================================================================
+def add_page_template(canvas, doc, site_name: str):
+    """Fügt Header/Footer zu jeder Seite hinzu"""
+    canvas.saveState()
+    
+    # Footer
+    footer_y = 15 * mm
+    page_num = canvas.getPageNumber()
+    
+    # Footer Links: Datum
+    canvas.setFont('Helvetica', 8)
+    canvas.setFillColor(PeakGuardDesign.GRAY)
+    canvas.drawString(18 * mm, footer_y, f"{pd.Timestamp.now():%d.%m.%Y}")
+    
+    # Footer Mitte: PeakGuard + Kunde
+    canvas.setFont('Helvetica-Bold', 8)
+    canvas.setFillColor(PeakGuardDesign.PRIMARY)
+    footer_text = f"PeakGuard Report"
+    if site_name:
+        footer_text += f" – {site_name}"
+    canvas.drawCentredString(A4[0] / 2, footer_y, footer_text)
+    
+    # Footer Rechts: Seitenzahl
+    canvas.setFont('Helvetica', 8)
+    canvas.setFillColor(PeakGuardDesign.GRAY)
+    canvas.drawRightString(A4[0] - 18 * mm, footer_y, f"Seite {page_num}")
+    
+    # Disclaimer (nur auf Seite 1)
+    if page_num == 1:
+        disclaimer_y = footer_y - 8
+        canvas.setFont('Helvetica', 6)
+        canvas.setFillColor(PeakGuardDesign.GRAY)
+        disclaimer = "Alle Angaben ohne Gewähr. Berechnungen basieren auf historischen Daten und stellen keine Garantie für zukünftige Einsparungen dar."
+        canvas.drawCentredString(A4[0] / 2, disclaimer_y, disclaimer)
+    
+    canvas.restoreState()
 
 def build_pdf_report(
     df: pd.DataFrame,
@@ -115,7 +626,7 @@ def build_pdf_report(
     if d0.empty:
         raise ValueError("Keine gültigen Zeitstempel nach Parsing vorhanden.")
 
-    # --- Build raw power series in kW (from canonical columns if present) ---
+    # --- Build raw power series in kW ---
     raw = _prepare_raw_power_and_optional_phases(
         d0=d0,
         timestamp_col=timestamp_col,
@@ -136,7 +647,7 @@ def build_pdf_report(
     # --- Aggregate to demand interval (15min) ---
     df_15 = _aggregate_to_interval(df_raw, minutes=demand_interval_minutes)
     if df_15.empty:
-        raise ValueError("Aggregation auf 15-Minuten ergab keine Daten (prüfe Zeitstempel / Mapping).")
+        raise ValueError("Aggregation auf 15-Minuten ergab keine Daten.")
 
     idx_15 = cast(pd.DatetimeIndex, df_15.index)
 
@@ -158,7 +669,7 @@ def build_pdf_report(
     # --- Annualization ---
     annual_energy_kwh = energy_kwh * (8760.0 / duration_hours)
 
-    # --- Utilization hours (before) based on 15-min peak ---
+    # --- Utilization hours ---
     util_hours_before = (annual_energy_kwh / peak_15_kw) if peak_15_kw > 0 else 0.0
     work_ct_before, demand_eur_before, tariff_label_before = _tariff_for_util_hours(tariffs, util_hours_before)
     cost_before = annual_energy_kwh * (work_ct_before / 100.0) + peak_15_kw * demand_eur_before
@@ -176,7 +687,7 @@ def build_pdf_report(
         block_h=block_h,
     )
 
-    # --- Module 1: Peak events (selected cap) ---
+    # --- Module 1: Peak events ---
     mod1 = compute_peak_events(df_15, cap_kw_sel, interval_minutes=demand_interval_minutes)
 
     # --- Module 2: Unbalance ---
@@ -185,7 +696,7 @@ def build_pdf_report(
     # --- Optional BLK ---
     blk = compute_blk_metrics_15min(df_15) if include_reactive else BlkResult(available=False)
 
-    # --- Other package scenarios (always shown) ---
+    # --- Package scenarios ---
     pkg_scenarios: List[_Scenario] = []
     for g in ["Bronze", "Silber", "Gold"]:
         cap_g, cap_lbl = compute_cap(df_15["p_kw"], g, manual_cap_kw=None, manual_value="")
@@ -202,7 +713,7 @@ def build_pdf_report(
             )
         )
 
-    # --- v3.0: build recommendations from module results ---
+    # --- Recommendations ---
     recs = build_recommendations_v3(
         mod1=mod1,
         mod2=mod2,
@@ -216,15 +727,20 @@ def build_pdf_report(
 
     # --- Charts ---
     figs: List[Path] = [
-        make_timeseries_plot(df_15),
-        make_duration_curve(df_15),
+        make_timeseries_plot(df_15, cap_kw_sel),
+        make_duration_curve(df_15, cap_kw_sel),
         make_heatmap(df_15),
         make_events_scatter(mod1),
     ]
     if blk.available:
         figs.append(make_blk_plot(df_15))
 
-    # --- PDF ---
+    # --- PDF Generation ---
+    # PDF Metadaten setzen
+    pdf_title = f"PeakGuard Report - {site_name if site_name else 'Bericht'} - {pd.Timestamp.now():%d.%m.%Y}"
+    pdf_author = "PeakGuard"
+    pdf_subject = f"Lastgang-Analyse für {site_name if site_name else 'Kunde'}"
+
     doc = SimpleDocTemplate(
         str(out_path),
         pagesize=A4,
@@ -232,51 +748,45 @@ def build_pdf_report(
         leftMargin=18 * mm,
         topMargin=16 * mm,
         bottomMargin=16 * mm,
+        title=pdf_title,
+        author=pdf_author,
+        subject=pdf_subject,
     )
-    styles = getSampleStyleSheet()
+    
+    styles = get_custom_styles()
     story: List[Flowable] = []
 
-    def p_wrap(text: str) -> Paragraph:
+    def p_wrap(text: str, style_name: str = 'CustomBody') -> Paragraph:
         safe = (text or "—").replace("\n", "<br/>")
-        return Paragraph(safe, styles["BodyText"])
+        return Paragraph(safe, styles[style_name])
 
-    story.append(Paragraph("PeakGuard – Lastgang- & Lastspitzen-Report (v3.0)", styles["Title"]))
+    # === HEADER / TITLE ===
+    story.append(Paragraph("PeakGuard – Lastgang- & Lastspitzen-Report", styles["CustomTitle"]))
+    story.append(Paragraph(f"<font color='#{PeakGuardDesign.GRAY.hexval()[2:]}'>Version 3.1 | Erstellt: {pd.Timestamp.now():%d.%m.%Y %H:%M}</font>", styles["CustomBody"]))
     story.append(Spacer(1, 6 * mm))
 
+    # === METADATEN TABLE ===
     period_str = (
         f"{pd.Timestamp(idx_15.min()):%d.%m.%Y %H:%M} – "
         f"{pd.Timestamp(idx_15.max()):%d.%m.%Y %H:%M} ({duration_hours:.1f} h)"
     )
 
-    story.append(
-        Table(
-            [
-                ["Quelle", source_name],
-                ["Standort", site_name or "—"],
-                ["Zählertyp", meter_type],
-                ["Datenqualität", data_quality],
-                ["Zeitraum", period_str],
-                [
-                    "Validierung",
-                    f"Input ∆t~{inferred_res if inferred_res is not None else '—'} min | "
-                    f"Missing-Quote: {missing_quote:.1%} | Demand-Basis: {demand_interval_minutes} min",
-                ],
-            ],
-            colWidths=[40 * mm, 140 * mm],
-            style=TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            ),
-        )
-    )
+    story.append(create_info_table([
+        ["Quelle", source_name],
+        ["Standort", site_name or "—"],
+        ["Zählertyp", meter_type],
+        ["Datenqualität", data_quality],
+        ["Zeitraum", period_str],
+        [
+            "Validierung",
+            f"Input ∆t~{inferred_res if inferred_res is not None else '—'} min | "
+            f"Missing-Quote: {missing_quote:.1%} | Demand-Basis: {demand_interval_minutes} min",
+        ],
+    ]))
     story.append(Spacer(1, 6 * mm))
 
-    # --- KPIs ---
-    story.append(Paragraph("Kernkennzahlen (Lastgang-Logik: 15-min Mittelwerte)", styles["Heading2"]))
+    # === KERNKENNZAHLEN ===
+    story.append(Paragraph("Kernkennzahlen (Lastgang-Logik: 15-min Mittelwerte)", styles["CustomHeading2"]))
 
     util_before_str = f"{fmt_num(util_hours_before, 0, 'h/a')} ({tariff_label_before})"
     rows_kpi: TableData = [
@@ -287,39 +797,24 @@ def build_pdf_report(
     if peak_1m_kw is not None:
         rows_kpi.append(["Max. Leistung (Peak, 1-min Info)", fmt_num(peak_1m_kw, 1, "kW")])
 
-    rows_kpi.extend(
-        [
-            ["Benutzungsdauer (hochgerechnet)", util_before_str],
-            ["Arbeitspreis (akt. Tarif)", f"{work_ct_before:.2f} ct/kWh".replace(".", ",")],
-            ["Leistungspreis (akt. Tarif)", f"{demand_eur_before:.2f} €/kW/a".replace(".", ",")],
-            ["Kosten (Ist, hochgerechnet)", fmt_num(cost_before, 0, "€/a")],
-        ]
-    )
+    rows_kpi.extend([
+        ["Benutzungsdauer (hochgerechnet)", util_before_str],
+        ["Arbeitspreis (akt. Tarif)", f"{work_ct_before:.2f} ct/kWh".replace(".", ",")],
+        ["Leistungspreis (akt. Tarif)", f"{demand_eur_before:.2f} €/kW/a".replace(".", ",")],
+        ["Kosten (Ist, hochgerechnet)", fmt_num(cost_before, 0, "€/a")],
+    ])
 
-    story.append(
-        Table(
-            rows_kpi,
-            colWidths=[95 * mm, 85 * mm],
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            ),
-        )
-    )
+    story.append(create_data_table(rows_kpi))
     story.append(Spacer(1, 6 * mm))
 
-    # --- Selected Peak shaving ---
-    story.append(Paragraph("Peak-Shaving Ziel (Cap) & rechnerische Wirkung (15-min Basis)", styles["Heading2"]))
+    # === PEAK SHAVING ZIEL ===
+    story.append(Paragraph("Peak-Shaving Ziel (Cap) & rechnerische Wirkung", styles["CustomHeading2"]))
 
     util_after_str = f"{fmt_num(scenario_sel.util_hours_after, 0, 'h/a')} ({scenario_sel.tariff_label_after})"
     tariff_switch_note = (
-        "Tarifwechsel möglich (nach Peak-Shaving > Schwelle)."
+        "✓ Tarifwechsel möglich (nach Peak-Shaving > Schwelle)"
         if scenario_sel.tariff_switched
-        else "Kein Tarifwechsel (weiterhin unter/über Schwelle)."
+        else "○ Kein Tarifwechsel (weiterhin unter/über Schwelle)"
     )
 
     rows_sel: TableData = [
@@ -327,434 +822,128 @@ def build_pdf_report(
         ["Cap", fmt_num(scenario_sel.cap_kw, 1, "kW")],
         ["Peak vorher (15-min)", fmt_num(peak_15_kw, 1, "kW")],
         ["Peak nachher (Cap)", fmt_num(scenario_sel.peak_after_kw, 1, "kW")],
-        ["Neue Benutzungsdauer (hochgerechnet)", util_after_str],
+        ["Neue Benutzungsdauer", util_after_str],
         ["Tarifwechsel-Check", tariff_switch_note],
         ["15-min Blöcke über Cap", f"{scenario_sel.blocks_over_cap} ({scenario_sel.share_over_cap:.1%})"],
         ["Energie über Cap (Indikator)", fmt_num(scenario_sel.kwh_to_shift, 1, "kWh")],
-        ["Kosten nachher (hochgerechnet)", fmt_num(scenario_sel.cost_after, 0, "€/a")],
-        ["Einsparung (rein rechnerisch)", fmt_num(scenario_sel.savings_eur, 0, "€/a")],
+        ["Kosten nachher", fmt_num(scenario_sel.cost_after, 0, "€/a")],
+        ["Einsparung (rechnerisch)", fmt_num(scenario_sel.savings_eur, 0, "€/a")],
     ]
 
-    story.append(
-        Table(
-            rows_sel,
-            colWidths=[95 * mm, 85 * mm],
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            ),
-        )
-    )
+    story.append(create_data_table(rows_sel, highlight_last=True))
     story.append(Spacer(1, 6 * mm))
 
-    # --- Other scenarios table ---
-    story.append(Paragraph("Weitere Szenarien (rechnerisch, inkl. möglichem Tarifwechsel)", styles["Heading3"]))
+    # === WEITERE SZENARIEN ===
+    story.append(Paragraph("Weitere Szenarien (rechnerisch, inkl. Tarifwechsel)", styles["CustomHeading3"]))
 
-    rows_other: TableData = [["Szenario", "Cap", "Peak nachher", "Benutzungsdauer", "Kosten nachher", "Einsparung"]]
+    rows_other: TableData = [["Szenario", "Cap", "Peak nachher", "Benutzungsdauer", "Kosten", "Einsparung"]]
     for s in pkg_scenarios:
-    # Prozentuale Reduzierung relativ zum bisherigen 15-min Peak
         red_pct = 0.0
         if peak_15_kw > 0:
             red_pct = (1.0 - (float(s.peak_after_kw) / float(peak_15_kw))) * 100.0
 
         peak_cell = Paragraph(
-            f"{fmt_num(s.peak_after_kw, 1, 'kW')}<br/><font size=8>Reduzierung: {fmt_pct(red_pct, 1)}</font>",
-            styles["BodyText"],
+            f"{fmt_num(s.peak_after_kw, 1, 'kW')}<br/><font size=7 color='#{PeakGuardDesign.GRAY.hexval()[2:]}'>↓ {fmt_pct(red_pct, 1)}</font>",
+            styles['CustomBody'],
         )
 
-        rows_other.append(
-            [
-                s.cap_label,
-                fmt_num(s.cap_kw, 1, "kW"),
-                peak_cell,
-                f"{fmt_num(s.util_hours_after, 0, 'h/a')} ({s.tariff_label_after})",
-                fmt_num(s.cost_after, 0, "€/a"),
-                fmt_num(s.savings_eur, 0, "€/a"),
-            ]
-        )
-    story.append(
-        Table(
-            rows_other,
-            colWidths=[44 * mm, 25 * mm, 28 * mm, 40 * mm, 22 * mm, 21 * mm],
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-                    ("ALIGN", (0, 1), (0, -1), "LEFT"),
-                ]
-            ),
-        )
-    )
+        rows_other.append([
+            s.cap_label,
+            fmt_num(s.cap_kw, 1, "kW"),
+            peak_cell,
+            f"{fmt_num(s.util_hours_after, 0, 'h/a')}",
+            fmt_num(s.cost_after, 0, "€/a"),
+            fmt_num(s.savings_eur, 0, "€/a"),
+        ])
+    
+    story.append(create_scenario_table(rows_other))
     story.append(Spacer(1, 6 * mm))
 
-    # --- Module 1 ---
-    story.append(Paragraph("Modul 1: Peak-Cluster & Shift-Analyse (Ereignisse, 15-min)", styles["Heading2"]))
-    story.append(
-        Table(
-            [
-                ["Peak-Ereignisse gesamt", str(mod1.n_events)],
-                ["Ø Dauer pro Ereignis", f"{mod1.avg_duration_min:.1f} min".replace(".", ",")],
-                ["Max. Dauer (längster Peak)", f"{mod1.max_duration_min:.1f} min".replace(".", ",")],
-                ["Max. benötigte Verschiebe-Leistung", f"{mod1.max_shift_kw:.1f} kW".replace(".", ",")],
-                ["Top-3 Monate (Anzahl)", mod1.top_months],
-                ["Interpretation", p_wrap(mod1.interpretation)],
-            ],
-            colWidths=[95 * mm, 85 * mm],
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            ),
-        )
-    )
+    # === MODULE 1 ===
+    story.append(Paragraph("Modul 1: Peak-Cluster & Shift-Analyse", styles["CustomHeading2"]))
+    story.append(create_data_table([
+        ["Peak-Ereignisse gesamt", str(mod1.n_events)],
+        ["Ø Dauer pro Ereignis", f"{mod1.avg_duration_min:.1f} min".replace(".", ",")],
+        ["Max. Dauer (längster Peak)", f"{mod1.max_duration_min:.1f} min".replace(".", ",")],
+        ["Max. Verschiebe-Leistung", f"{mod1.max_shift_kw:.1f} kW".replace(".", ",")],
+        ["Top-3 Monate (Anzahl)", mod1.top_months],
+        ["Interpretation", p_wrap(mod1.interpretation)],
+    ]))
     story.append(Spacer(1, 6 * mm))
 
-    # --- Module 2 ---
-    story.append(Paragraph("Modul 2: Phasen-Symmetrie & Unwucht-Check (15-min)", styles["Heading2"]))
+    # === MODULE 2 ===
+    story.append(Paragraph("Modul 2: Phasen-Symmetrie & Unwucht-Check", styles["CustomHeading2"]))
     if not mod2.available:
-        story.append(Paragraph("Keine 3-Phasen-Leistungsdaten vorhanden – Unwucht-Check nicht berechnet.", styles["BodyText"]))
+        story.append(p_wrap("Keine 3-Phasen-Daten vorhanden – Unwucht-Check nicht berechnet."))
     else:
-        story.append(
-            Table(
-                [
-                    ["Unwucht-Schwelle", "> 3,0 kW (Pmax_phase − Pmin_phase)"],
-                    ["Anteil Blöcke > Schwelle", f"{mod2.share_over:.1%}"],
-                    ["Max. Unwucht", f"{mod2.max_unbalance_kw:.1f} kW".replace(".", ",")],
-                    ["Dominante Phase", mod2.dominant_phase],
-                    ["Empfehlung", p_wrap(mod2.recommendation)],
-                ],
-                colWidths=[95 * mm, 85 * mm],
-                style=TableStyle(
-                    [
-                        ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                        ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ]
-                ),
-            )
-        )
+        story.append(create_data_table([
+            ["Unwucht-Schwelle", "> 3,0 kW (Pmax − Pmin)"],
+            ["Anteil Blöcke > Schwelle", f"{mod2.share_over:.1%}"],
+            ["Max. Unwucht", f"{mod2.max_unbalance_kw:.1f} kW".replace(".", ",")],
+            ["Dominante Phase", mod2.dominant_phase],
+            ["Empfehlung", p_wrap(mod2.recommendation)],
+        ]))
     story.append(Spacer(1, 6 * mm))
 
-    # --- Module 3 (BLK) ---
-    story.append(Paragraph("Blindleistung / BLK-Analyse (optional, 15-min)", styles["Heading2"]))
+    # === MODULE 3 (BLK) ===
+    story.append(Paragraph("Blindleistung / BLK-Analyse (optional)", styles["CustomHeading2"]))
     if not blk.available:
-        story.append(Paragraph("Keine ausreichenden cosϕ-/Phasen-Daten vorhanden – Blindleistungsanalyse nicht berechnet.", styles["BodyText"]))
+        story.append(p_wrap("Keine cosϕ-/Phasen-Daten vorhanden – Blindleistungsanalyse nicht berechnet."))
     else:
-        story.append(
-            Table(
-                [
-                    ["Ratio ΣQ/ΣP", f"{blk.ratio:.3f}".replace(".", ",")],
-                    ["15-min Blöcke > cosϕ=0,9", f"{blk.blocks_over} ({blk.share_over:.1%})"],
-                    ["Q95 (Empfehlung)", fmt_num(blk.q95, 1, "kvar")],
-                    ["Einschätzung", p_wrap(blk.assessment)],
-                ],
-                colWidths=[95 * mm, 85 * mm],
-                style=TableStyle(
-                    [
-                        ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                        ("BACKGROUND", (0, 0), (0, -1), colors.whitesmoke),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ]
-                ),
-            )
-        )
+        story.append(create_data_table([
+            ["Ratio ΣQ/ΣP", f"{blk.ratio:.3f}".replace(".", ",")],
+            ["15-min Blöcke > cosϕ=0,9", f"{blk.blocks_over} ({blk.share_over:.1%})"],
+            ["Q95 (Empfehlung)", fmt_num(blk.q95, 1, "kvar")],
+            ["Einschätzung", p_wrap(blk.assessment)],
+        ]))
     story.append(Spacer(1, 6 * mm))
 
-    # =========================
-    # v3.0 NEW PAGE:
-    # Individuelle Handlungsempfehlungen
-    # =========================
+    # === HANDLUNGSEMPFEHLUNGEN (NEUE SEITE) ===
     story.append(PageBreak())
-    story.append(Paragraph("Individuelle Maßnahmen-Roadmap", styles["Heading2"]))
+    story.append(Paragraph("Individuelle Maßnahmen-Roadmap", styles["CustomHeading2"]))
     story.append(Spacer(1, 2 * mm))
 
     rec_rows = build_recommendations_table_rows(recs, styles)
-    story.append(
-        Table(
-            rec_rows,
-            colWidths=[45 * mm, 55 * mm, 80 * mm],  # Kategorie | Trigger | Maßnahme
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ]
-            ),
-        )
-    )
+    story.append(create_recommendations_table(rec_rows))
     story.append(Spacer(1, 4 * mm))
 
-    # --- Top 20 Lastspitzen (15-min) ---
+    # === TOP 20 LASTSPITZEN ===
     story.append(PageBreak())
-    story.append(Paragraph("Top 20 Lastspitzen (15-min Mittelwerte)", styles["Heading2"]))
+    story.append(Paragraph("Top 20 Lastspitzen (15-min Mittelwerte)", styles["CustomHeading2"]))
     story.append(Spacer(1, 2 * mm))
 
     top_rows = build_top_peaks_rows(df_15, n=20)
-    story.append(
-        Table(
-            top_rows,
-            colWidths=[10 * mm, 32 * mm, 34 * mm, 34 * mm, 34 * mm],
-            style=TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ALIGN", (3, 1), (3, -1), "RIGHT"),
-                    ("ALIGN", (4, 1), (4, -1), "RIGHT"),
-                ]
-            ),
-        )
-    )
+    story.append(create_peaks_table(top_rows))
     story.append(Spacer(1, 4 * mm))
 
-    # --- Visuals ---
-    story.append(Paragraph("Visualisierungen", styles["Heading2"]))
-    for img_path in figs:
-        story.append(Spacer(1, 2 * mm))
-        story.append(Image(str(img_path), width=170 * mm, height=80 * mm))
-        story.append(Spacer(1, 4 * mm))
+    # === VISUALISIERUNGEN ===
 
-    doc.build(story)
+    # KeepTogether verhindert, dass Überschrift alleine steht
+    # === VISUALISIERUNGEN ===
+    from reportlab.platypus import KeepTogether
 
+    # Erste Grafik mit Überschrift zusammenhalten
+    viz_header = [
+        Paragraph("Visualisierungen", styles["CustomHeading2"]),
+        Spacer(1, 2 * mm)
+    ]
 
-# -----------------------------
-# v3.0 Recommendation logic
-# -----------------------------
-def _estimate_p_gesamt_kw(peak_15_kw: float) -> float:
-    # Proxy: ohne Submeter/Verbraucheraufschlüsselung ist Peak (15-min) die beste "Anschlussleistungs-Näherung".
-    return float(max(peak_15_kw, 0.0))
+    if figs:  # Wenn Grafiken vorhanden
+        viz_header.append(Image(str(figs[0]), width=170 * mm, height=85 * mm))
+        story.append(KeepTogether(viz_header))
+    
+    # Rest der Grafiken einzeln
+        for img_path in figs[1:]:
+            story.append(Spacer(1, 3 * mm))
+            story.append(Image(str(img_path), width=170 * mm, height=85 * mm))
 
-
-def _estimate_p_verschiebbar_kw(mod1: PeakEventsResult, scenario: "_Scenario") -> float:
-    # Proxy: größte benötigte Verschiebe-Leistung aus Events (gegenüber Cap) ist ein robuster Indikator.
-    # (Alternativ wäre max(excess_kw) möglich, aber mod1.max_shift_kw basiert genau darauf.)
-    return float(max(mod1.max_shift_kw, 0.0))
-
-
-def build_recommendations_v3(
-    mod1: PeakEventsResult,
-    mod2: UnbalanceResult,
-    blk: BlkResult,
-    util_hours_before: float,
-    util_hours_after: float,
-    p_verschiebbar_kw: float,
-    p_gesamt_kw: float,
-    tariffs: Tariffs,
-) -> List[Recommendation]:
-    recs: List[Recommendation] = []
-
-    # ---- Derived variables (PRD inputs) ----
-    ev = mod1.events_df
-    if ev is None or ev.empty:
-        n_short = 0
-        n_long = 0
-        max_dur = 0.0
-        share_short = 0.0
-    else:
-        dur = pd.to_numeric(ev["duration_min"], errors="coerce").dropna()
-        n_short = int((dur <= 15.0).sum())
-        n_long = int((dur >= 60.0).sum())
-        max_dur = float(dur.max()) if not dur.empty else 0.0
-        share_short = float(n_short / max(int(len(dur)), 1))
-
-    # "Dominantes Aggregat" Proxy: ein einzelnes Ereignis verlangt >40% der Gesamtleistung als Verschiebung
-    dominant_agg = (p_gesamt_kw > 0) and (p_verschiebbar_kw / p_gesamt_kw > 0.40)
-
-    # Unwucht
-    unb_kw = float(mod2.max_unbalance_kw) if mod2.available else 0.0
-    dom_phase = mod2.dominant_phase_name if mod2.available else "—"
-    dom_share = float(mod2.dominant_phase_share) if mod2.available else 0.0
-
-    # BLK / cosphi
-    ratio_qp = float(blk.ratio) if blk.available else 0.0
-    share_cosphi_under_0_9 = float(blk.share_over) if blk.available else 0.0  # proxy: Grenzwertverletzungen
-
-    # Tarifwechsel
-    tariff_before = util_hours_before
-    tariff_after = util_hours_after
-    crossed_to_high = (tariff_before < tariffs.switch_hours) and (tariff_after > tariffs.switch_hours)
-
-    # ---- Modul A: Peak-Strategie (Cluster-Analyse) ----
-    # Z1
-    if (n_short > 10) and (share_short > 0.50):
-        recs.append(
-            Recommendation(
-                code="Z1",
-                category="Peak-Strategie",
-                trigger=f"{n_short} kurze Peaks (≤15 min), Anteil kurz {share_short:.0%}",
-                action="Quick Win: Startzeiten staffeln. Beispiel: Max. 1 Ofen pro 15-min-Fenster aufheizen; Spülmaschinen außerhalb der Backzeiten nutzen.",
-                priority="Quick Win",
-            )
-        )
-
-    # Z2
-    if dominant_agg:
-        recs.append(
-            Recommendation(
-                code="Z2",
-                category="Peak-Strategie",
-                trigger=f"Verschiebbar ~{(p_verschiebbar_kw / p_gesamt_kw):.0%} der Gesamtleistung (Proxy für dominantes Aggregat)",
-                action="Installation eines Lastabwurfrelais für nicht-kritische Lasten (z. B. Lüftung, Warmwasser) bei Annäherung an das Cap.",
-                priority="",
-            )
-        )
-
-    # Z4
-    if (n_long >= 3) and (max_dur > 60.0):
-        recs.append(
-            Recommendation(
-                code="Z4",
-                category="Peak-Strategie",
-                trigger=f"{n_long} lange Peak-Ereignisse (≥60 min), max. Dauer {max_dur:.0f} min",
-                action="Prozess-/Produktionsplanung: Backfenster in Nebenzeiten (NT) verschieben, um Überschneidungen mit Heizungspeaks zu vermeiden.",
-                priority="",
-            )
-        )
-
-    # Z6
-    if max_dur >= 120.0:
-        recs.append(
-            Recommendation(
-                code="Z6",
-                category="Peak-Strategie",
-                trigger=f"Max. Peak-Dauer {max_dur:.0f} min (Hinweis auf Dauerlast: Kälte/Heizung/Grundlast)",
-                action="Technische Effizienzprüfung: veraltete Aggregate (>15 J.) gegen drehzahlgeregelte Modelle tauschen; Sollwert-Optimierung Kühlräume um +1–2 K.",
-                priority="Investition erforderlich",
-            )
-        )
-
-    # ---- Modul B: Wirtschaftlichkeit Hardware (kW-Verschiebung) ----
-    ratio_shift = (p_verschiebbar_kw / p_gesamt_kw) if p_gesamt_kw > 0 else 0.0
-
-    # Z7
-    if ratio_shift < 0.10 and p_gesamt_kw > 0:
-        recs.append(
-            Recommendation(
-                code="Z7",
-                category="Wirtschaftlichkeit (LM)",
-                trigger=f"P_verschiebbar ≈ {ratio_shift:.0%} von P_gesamt",
-                action="Quick Win: Fokus auf Mitarbeiterschulung und manuelle Schaltpläne (Verhaltensänderung).",
-                priority="Quick Win",
-            )
-        )
-    # Z8
-    elif 0.10 <= ratio_shift <= 0.30:
-        recs.append(
-            Recommendation(
-                code="Z8",
-                category="Wirtschaftlichkeit (LM)",
-                trigger=f"P_verschiebbar ≈ {ratio_shift:.0%} von P_gesamt",
-                action="Automatisches Lastmanagement mit Prioritäten (z. B. Kompressoren & Spülmaschinen) empfohlen.",
-                priority="",
-            )
-        )
-    # Z9
-    elif ratio_shift > 0.30:
-        recs.append(
-            Recommendation(
-                code="Z9",
-                category="Wirtschaftlichkeit (LM)",
-                trigger=f"P_verschiebbar ≈ {ratio_shift:.0%} von P_gesamt",
-                action="Investition erforderlich: Vollwertiges Lastmanagementsystem mit Messung je Hauptverbraucher und PV-Integration wirtschaftlich hoch attraktiv.",
-                priority="Investition erforderlich",
-            )
-        )
-
-    # ---- Modul C: Technische Korrekturen (Unwucht & Blindleistung) ----
-    # Z10
-    if (unb_kw > 3.0) and (dom_share > 0.80):
-        recs.append(
-            Recommendation(
-                code="Z10",
-                category="Technik (Phasen/Unwucht)",
-                trigger=f"Unwucht max. {unb_kw:.1f} kW, dominante Phase {dom_phase} ({dom_share:.0%})",
-                action="Quick Win: Elektriker-Check & Umklemmung. Einphasige Großverbraucher von der dominanten Phase auf schwächere Phasen verteilen.",
-                priority="Quick Win",
-            )
-        )
-
-    # Z13
-    if (ratio_qp > 0.4) or (share_cosphi_under_0_9 > 0.40):
-        recs.append(
-            Recommendation(
-                code="Z13",
-                category="Technik (Blindleistung)",
-                trigger=f"Ratio ΣQ/ΣP={ratio_qp:.2f} oder Anteil Grenzwert-Verletzung ≈ {share_cosphi_under_0_9:.0%}",
-                action="Investition erforderlich: Blindleistungskompensation (BLK) dringend. Ziel-cos φ: 0,95–0,98; Amortisation oft < 3 Jahre.",
-                priority="Investition erforderlich",
-            )
-        )
-
-    # ---- Modul D: Tarif-Strategie ----
-    # Z14
-    if crossed_to_high:
-        recs.append(
-            Recommendation(
-                code="Z14",
-                category="Tarif-Strategie",
-                trigger=f"Benutzungsdauer vorher {tariff_before:.0f} h/a → nachher {tariff_after:.0f} h/a (Schwelle {tariffs.switch_hours:.0f})",
-                action="Tarif neu verhandeln: Durch höhere Benutzungsdauer ist ein Wechsel in günstigere Netznutzungsgruppen möglich.",
-                priority="",
-            )
-        )
-
-    # Fallback, wenn nichts triggert
-    if not recs:
-        recs.append(
-            Recommendation(
-                code="—",
-                category="Allgemein",
-                trigger="Keine klaren Trigger über den definierten Schwellenwerten erkannt.",
-                action="Empfehlung: Cap/Schwellenwerte prüfen (manueller Cap), weitere Messdauer erhöhen, oder Hauptverbraucher separat messen (Submeter) für bessere Ursachenanalyse.",
-                priority="",
-            )
-        )
-
-    # Priorisierung: Quick Wins zuerst, dann Investitionen, dann Rest
-    prio_rank = {"Quick Win": 0, "Investition erforderlich": 1, "": 2}
-    recs_sorted = sorted(recs, key=lambda r: (prio_rank.get(r.priority, 9), r.code))
-
-    return recs_sorted
+    doc.build(story, onFirstPage=lambda c, d: add_page_template(c, d, site_name),
+                  onLaterPages=lambda c, d: add_page_template(c, d, site_name))
 
 
-def build_recommendations_table_rows(recs: List[Recommendation], styles) -> TableData:
-    def p(text: str) -> Paragraph:
-        return Paragraph((text or "—").replace("\n", "<br/>"), styles["BodyText"])
-
-    rows: TableData = [["Kategorie", "Identifizierter Trigger", "Empfohlene Maßnahme"]]
-    for r in recs:
-        cat = r.category
-        if r.priority:
-            cat = f"{r.category} – {r.priority}"
-        # Optional: Code sichtbar machen ohne extra Spalte
-        trig = f"{r.code}: {r.trigger}" if r.code and r.code != "—" else r.trigger
-        rows.append([p(cat), p(trig), p(r.action)])
-    return rows
-
-
-# -----------------------------
-# Data prep / aggregation
-# -----------------------------
+# ============================================================================
+# DATENVERARBEITUNG (Original-Logik beibehalten)
+# ============================================================================
 def _prepare_raw_power_and_optional_phases(
     d0: pd.DataFrame,
     timestamp_col: str,
@@ -846,7 +1035,7 @@ def _prepare_raw_power_and_optional_phases(
             out["p_kw"] = _to_kw(d[canonical_total])
         else:
             if power_col is None:
-                raise ValueError("power_col ist None, aber es wurden keine 3 Phasen-Spalten angegeben.")
+                raise ValueError("power_col ist None")
             out["p_kw"] = _to_kw(d[power_col])
 
         if canonical_c_total is not None:
@@ -896,10 +1085,9 @@ def _missing_quote(idx: pd.DatetimeIndex, resolution_minutes: Optional[int]) -> 
     missing = max(expected - actual, 0)
     return float(missing) / float(expected)
 
-
-# -----------------------------
-# Modules
-# -----------------------------
+# ============================================================================
+# BERECHNUNGSMODULE
+# ============================================================================
 def compute_peak_events(df_15: pd.DataFrame, cap_kw: float, interval_minutes: int = 15) -> PeakEventsResult:
     over = (pd.to_numeric(df_15["p_kw"], errors="coerce") > float(cap_kw)).fillna(False).to_numpy(dtype=bool)
     idx = cast(pd.DatetimeIndex, df_15.index)
@@ -1111,9 +1299,9 @@ def compute_blk_metrics_15min(df_15: pd.DataFrame) -> BlkResult:
     )
 
 
-# -----------------------------
-# Cap / Tariff / Scenarios
-# -----------------------------
+# ============================================================================
+# CAP / TARIFF / SCENARIOS
+# ============================================================================
 def compute_cap(power_kw: pd.Series, reduction_goal: str, manual_cap_kw: Optional[float], manual_value: str) -> Tuple[float, str]:
     goal = (reduction_goal or "").strip()
     if goal in GOAL_TO_QUANTILE:
@@ -1195,152 +1383,207 @@ def _compute_scenario(
     )
 
 
-# -----------------------------
-# Plots
-# -----------------------------
-def make_timeseries_plot(df_15: pd.DataFrame) -> Path:
-    tmp = Path(_tempfile_path("timeseries.png"))
-    idx = cast(pd.DatetimeIndex, df_15.index)
-    y = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce")
-
-    plt.figure(figsize=(10, 3.2))
-    plt.plot(idx, y)
-    plt.ylabel("Leistung (kW) – 15-min Mittelwert")
-    plt.xlabel("Zeit")
-    plt.xticks(rotation=90)
-    plt.tight_layout()
-    plt.savefig(tmp, dpi=170)
-    plt.close()
-    return tmp
+# ============================================================================
+# RECOMMENDATIONS
+# ============================================================================
+def _estimate_p_gesamt_kw(peak_15_kw: float) -> float:
+    return float(max(peak_15_kw, 0.0))
 
 
-def make_duration_curve(df_15: pd.DataFrame) -> Path:
-    tmp = Path(_tempfile_path("duration.png"))
-    s = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce").dropna().sort_values().to_numpy(dtype=float)
-    n = int(len(s))
-    if n == 0:
-        plt.figure(figsize=(10, 3.2))
-        plt.text(0.5, 0.5, "Keine Daten", ha="center", va="center")
-        plt.axis("off")
-        plt.tight_layout()
-        plt.savefig(tmp, dpi=170)
-        plt.close()
-        return tmp
-
-    x = 100.0 * (np.arange(1, n + 1) / float(n))
-
-    plt.figure(figsize=(10, 3.2))
-    plt.plot(x, s)
-    for pct in range(10, 100, 10):
-        plt.axvline(pct, linewidth=0.5)
-
-    plt.ylabel("Leistung (kW) – 15-min Mittelwert")
-    plt.xlabel("Anteil der 15-min Blöcke (%)")
-    plt.xlim(0, 100)
-    plt.tight_layout()
-    plt.savefig(tmp, dpi=170)
-    plt.close()
-    return tmp
+def _estimate_p_verschiebbar_kw(mod1: PeakEventsResult, scenario: _Scenario) -> float:
+    return float(max(mod1.max_shift_kw, 0.0))
 
 
-def make_heatmap(df_15: pd.DataFrame) -> Path:
-    tmp = Path(_tempfile_path("heatmap.png"))
-    idx = cast(pd.DatetimeIndex, df_15.index)
-    ts_np = idx.to_numpy(dtype="datetime64[ns]")
+def build_recommendations_v3(
+    mod1: PeakEventsResult,
+    mod2: UnbalanceResult,
+    blk: BlkResult,
+    util_hours_before: float,
+    util_hours_after: float,
+    p_verschiebbar_kw: float,
+    p_gesamt_kw: float,
+    tariffs: Tariffs,
+) -> List[Recommendation]:
+    recs: List[Recommendation] = []
 
-    def _weekday(x: np.datetime64) -> int:
-        return int(pd.Timestamp(x).weekday())
-
-    def _hour(x: np.datetime64) -> int:
-        return int(pd.Timestamp(x).hour)
-
-    weekday = np.array([_weekday(x) for x in ts_np], dtype=int)
-    hour = np.array([_hour(x) for x in ts_np], dtype=int)
-
-    p = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce").to_numpy(dtype=float)
-    dfh = pd.DataFrame({"weekday": weekday, "hour": hour, "p": p})
-    pivot = dfh.pivot_table(index="weekday", columns="hour", values="p", aggfunc="mean")
-    pivot = pivot.reindex(index=[0, 1, 2, 3, 4, 5, 6], columns=list(range(24)))
-
-    vals = pivot.to_numpy(dtype=float)
-    flat = pd.Series(vals.ravel()).dropna()
-
-    if flat.empty:
-        bounds = [0.0, 1.0, 2.0, 3.0]
-        vals_plot = np.nan_to_num(vals, nan=0.0)
-    else:
-        q1 = float(flat.quantile(0.33))
-        q2 = float(flat.quantile(0.66))
-        vmin = float(flat.min())
-        vmax = float(flat.max())
-        bounds = [vmin - 1e-9, q1, q2, vmax + 1e-9]
-        vals_plot = vals
-
-    cmap = ListedColormap(["#dff3df", "#fff6cc", "#ffd6d6"])
-    norm = BoundaryNorm(bounds, cmap.N)
-
-    plt.figure(figsize=(10, 3.2))
-    plt.imshow(vals_plot, aspect="auto", cmap=cmap, norm=norm)
-
-    for i in range(vals.shape[0]):
-        for j in range(vals.shape[1]):
-            if not np.isnan(vals[i, j]):
-                plt.text(j, i, f"{vals[i, j]:.0f}", ha="center", va="center", color="black", fontsize=7)
-
-    plt.yticks(range(7), ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"])
-    plt.xticks(range(24), [str(h) for h in range(24)])
-    plt.xlabel("Stunde")
-    plt.title("Heatmap (Ø Leistung je Wochentag/Stunde) – 15-min Basis")
-    plt.tight_layout()
-    plt.savefig(tmp, dpi=170)
-    plt.close()
-    return tmp
-
-
-def make_events_scatter(mod1: PeakEventsResult) -> Path:
-    tmp = Path(_tempfile_path("events.png"))
     ev = mod1.events_df
-
-    plt.figure(figsize=(10, 3.2))
-    if ev.empty:
-        plt.text(0.5, 0.5, "Keine Peak-Ereignisse", ha="center", va="center")
-        plt.axis("off")
+    if ev is None or ev.empty:
+        n_short = 0
+        n_long = 0
+        max_dur = 0.0
+        share_short = 0.0
     else:
-        plt.scatter(ev["duration_min"], ev["max_shift_kw"])
-        plt.xlabel("Dauer Peak-Ereignis (min)")
-        plt.ylabel("Max. benötigte Verschiebe-Leistung je Ereignis (kW)")
-        plt.title("Peak-Ereignisse: Dauer vs. Verschiebe-Leistung")
+        dur = pd.to_numeric(ev["duration_min"], errors="coerce").dropna()
+        n_short = int((dur <= 15.0).sum())
+        n_long = int((dur >= 60.0).sum())
+        max_dur = float(dur.max()) if not dur.empty else 0.0
+        share_short = float(n_short / max(int(len(dur)), 1))
 
-    plt.tight_layout()
-    plt.savefig(tmp, dpi=170)
-    plt.close()
-    return tmp
+    dominant_agg = (p_gesamt_kw > 0) and (p_verschiebbar_kw / p_gesamt_kw > 0.40)
+
+    unb_kw = float(mod2.max_unbalance_kw) if mod2.available else 0.0
+    dom_phase = mod2.dominant_phase_name if mod2.available else "—"
+    dom_share = float(mod2.dominant_phase_share) if mod2.available else 0.0
+
+    ratio_qp = float(blk.ratio) if blk.available else 0.0
+    share_cosphi_under_0_9 = float(blk.share_over) if blk.available else 0.0
+
+    tariff_before = util_hours_before
+    tariff_after = util_hours_after
+    crossed_to_high = (tariff_before < tariffs.switch_hours) and (tariff_after > tariffs.switch_hours)
+
+    # Z1
+    if (n_short > 10) and (share_short > 0.50):
+        recs.append(
+            Recommendation(
+                code="Z1",
+                category="Peak-Strategie – Quick Win",
+                trigger=f"{n_short} kurze Peaks (≤15 min), Anteil kurz {share_short:.0%}",
+                action="Quick Win: Startzeiten staffeln. Beispiel: Max. 1 Ofen pro 15-min-Fenster aufheizen; Spülmaschinen außerhalb der Backzeiten nutzen.",
+                priority="Quick Win",
+            )
+        )
+
+    # Z2
+    if dominant_agg:
+        recs.append(
+            Recommendation(
+                code="Z2",
+                category="Peak-Strategie – Investition erforderlich",
+                trigger=f"Verschiebbar ~{(p_verschiebbar_kw / p_gesamt_kw):.0%} der Gesamtleistung",
+                action="Installation eines Lastabwurfrelais für nicht-kritische Lasten (z. B. Lüftung, Warmwasser) bei Annäherung an das Cap.",
+                priority="Investition erforderlich",
+            )
+        )
+
+    # Z4
+    if (n_long >= 3) and (max_dur > 60.0):
+        recs.append(
+            Recommendation(
+                code="Z4",
+                category="Peak-Strategie",
+                trigger=f"{n_long} lange Peak-Ereignisse (≥60 min), max. Dauer {max_dur:.0f} min",
+                action="Prozess-/Produktionsplanung: Backfenster in Nebenzeiten (NT) verschieben, um Überschneidungen mit Heizungspeaks zu vermeiden.",
+                priority="",
+            )
+        )
+
+    # Z6
+    if max_dur >= 120.0:
+        recs.append(
+            Recommendation(
+                code="Z6",
+                category="Peak-Strategie – Investition erforderlich",
+                trigger=f"Max. Peak-Dauer {max_dur:.0f} min (Hinweis auf Dauerlast: Kälte/Heizung/Grundlast)",
+                action="Technische Effizienzprüfung: veraltete Aggregate (>15 J.) gegen drehzahlgeregelte Modelle tauschen; Sollwert-Optimierung Kühlräume um +1–2 K.",
+                priority="Investition erforderlich",
+            )
+        )
+
+    ratio_shift = (p_verschiebbar_kw / p_gesamt_kw) if p_gesamt_kw > 0 else 0.0
+
+    # Z7
+    if ratio_shift < 0.10 and p_gesamt_kw > 0:
+        recs.append(
+            Recommendation(
+                code="Z7",
+                category="Wirtschaftlichkeit (LM) – Quick Win",
+                trigger=f"P_verschiebbar ≈ {ratio_shift:.0%} von P_gesamt",
+                action="Quick Win: Fokus auf Mitarbeiterschulung und manuelle Schaltpläne (Verhaltensänderung).",
+                priority="Quick Win",
+            )
+        )
+    # Z8
+    elif 0.10 <= ratio_shift <= 0.30:
+        recs.append(
+            Recommendation(
+                code="Z8",
+                category="Wirtschaftlichkeit (LM)",
+                trigger=f"P_verschiebbar ≈ {ratio_shift:.0%} von P_gesamt",
+                action="Automatisches Lastmanagement mit Prioritäten (z. B. Kompressoren & Spülmaschinen) empfohlen.",
+                priority="",
+            )
+        )
+    # Z9
+    elif ratio_shift > 0.30:
+        recs.append(
+            Recommendation(
+                code="Z9",
+                category="Wirtschaftlichkeit (LM) – Investition erforderlich",
+                trigger=f"P_verschiebbar ≈ {ratio_shift:.0%} von P_gesamt",
+                action="Investition erforderlich: Vollwertiges Lastmanagementsystem mit Messung je Hauptverbraucher und PV-Integration wirtschaftlich hoch attraktiv.",
+                priority="Investition erforderlich",
+            )
+        )
+
+    # Z10
+    if (unb_kw > 3.0) and (dom_share > 0.80):
+        recs.append(
+            Recommendation(
+                code="Z10",
+                category="Technik (Phasen/Unwucht) – Quick Win",
+                trigger=f"Unwucht max. {unb_kw:.1f} kW, dominante Phase {dom_phase} ({dom_share:.0%})",
+                action="Quick Win: Elektriker-Check & Umklemmung. Einphasige Großverbraucher von der dominanten Phase auf schwächere Phasen verteilen.",
+                priority="Quick Win",
+            )
+        )
+
+    # Z13
+    if (ratio_qp > 0.4) or (share_cosphi_under_0_9 > 0.40):
+        recs.append(
+            Recommendation(
+                code="Z13",
+                category="Technik (Blindleistung) – Investition erforderlich",
+                trigger=f"Ratio ΣQ/ΣP={ratio_qp:.2f} oder Anteil Grenzwert-Verletzung ≈ {share_cosphi_under_0_9:.0%}",
+                action="Investition erforderlich: Blindleistungskompensation (BLK) dringend. Ziel-cos φ: 0,95–0,98; Amortisation oft < 3 Jahre.",
+                priority="Investition erforderlich",
+            )
+        )
+
+    # Z14
+    if crossed_to_high:
+        recs.append(
+            Recommendation(
+                code="Z14",
+                category="Tarif-Strategie",
+                trigger=f"Benutzungsdauer vorher {tariff_before:.0f} h/a → nachher {tariff_after:.0f} h/a (Schwelle {tariffs.switch_hours:.0f})",
+                action="Tarif neu verhandeln: Durch höhere Benutzungsdauer ist ein Wechsel in günstigere Netznutzungsgruppen möglich.",
+                priority="",
+            )
+        )
+
+    if not recs:
+        recs.append(
+            Recommendation(
+                code="—",
+                category="Allgemein",
+                trigger="Keine klaren Trigger über den definierten Schwellenwerten erkannt.",
+                action="Empfehlung: Cap/Schwellenwerte prüfen (manueller Cap), weitere Messdauer erhöhen, oder Hauptverbraucher separat messen (Submeter) für bessere Ursachenanalyse.",
+                priority="",
+            )
+        )
+
+    prio_rank = {"Quick Win": 0, "Investition erforderlich": 1, "": 2}
+    recs_sorted = sorted(recs, key=lambda r: (prio_rank.get(r.priority, 9), r.code))
+
+    return recs_sorted
 
 
-def make_blk_plot(df_15: pd.DataFrame) -> Path:
-    tmp = Path(_tempfile_path("blk.png"))
+def build_recommendations_table_rows(recs: List[Recommendation], styles) -> TableData:
+    def p(text: str) -> Paragraph:
+        return Paragraph((text or "—").replace("\n", "<br/>"), styles["CustomBody"])
 
-    q = pd.to_numeric(cast(pd.Series, df_15.get("q_kvar", pd.Series(index=df_15.index, dtype=float))), errors="coerce")
-    qlim = pd.to_numeric(cast(pd.Series, df_15.get("q_limit", pd.Series(index=df_15.index, dtype=float))), errors="coerce")
-
-    idx = cast(pd.DatetimeIndex, df_15.index)
-
-    plt.figure(figsize=(10, 3.2))
-    plt.plot(idx, q, label="Q (kvar)")
-    plt.plot(idx, qlim, label="Q-Limit (cosϕ=0,9)")
-    plt.ylabel("Blindleistung (kvar) – 15-min Basis")
-    plt.xlabel("Zeit")
-    plt.xticks(rotation=90)
-    plt.legend(loc="upper right")
-    plt.tight_layout()
-    plt.savefig(tmp, dpi=170)
-    plt.close()
-    return tmp
+    rows: TableData = [["Kategorie", "Identifizierter Trigger", "Empfohlene Maßnahme"]]
+    for r in recs:
+        cat = r.category
+        trig = f"{r.code}: {r.trigger}" if r.code and r.code != "—" else r.trigger
+        rows.append([p(cat), p(trig), p(r.action)])
+    return rows
 
 
-# -----------------------------
-# Top peaks table
-# -----------------------------
+# ============================================================================
+# TOP PEAKS TABLE
+# ============================================================================
 def build_top_peaks_rows(df_15: pd.DataFrame, n: int = 20) -> TableData:
     idx = cast(pd.DatetimeIndex, df_15.index)
 
@@ -1388,9 +1631,9 @@ def build_top_peaks_rows(df_15: pd.DataFrame, n: int = 20) -> TableData:
     return rows
 
 
-# -----------------------------
-# Formatting / utils
-# -----------------------------
+# ============================================================================
+# FORMATTING / UTILITIES
+# ============================================================================
 def fmt_num(x: Optional[NumberLike], decimals: int, suffix: str) -> str:
     if x is None:
         return f"— {suffix}".strip()
@@ -1402,13 +1645,14 @@ def fmt_num(x: Optional[NumberLike], decimals: int, suffix: str) -> str:
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{s} {suffix}".strip()
 
+
 def fmt_pct(x: float, decimals: int = 1) -> str:
     s = f"{x:.{decimals}f}".replace(".", ",")
     return f"{s} %"
 
+
 def _tempfile_path(filename: str) -> str:
     import tempfile
     from uuid import uuid4
-
     p = Path(tempfile.gettempdir()) / f"peakguard_{uuid4().hex}_{filename}"
     return str(p)
