@@ -29,23 +29,56 @@ from reportlab.platypus import (
 )
 
 # ============================================================================
-# DESIGN SYSTEM - PeakGuard Corporate Identity
+# DESIGN SYSTEM - PeakGuard Corporate Identity v2
 # ============================================================================
+class DesignTokens:
+    """Zentrale Design-Tokens für konsistente Gestaltung (v2)"""
+
+    # === SPACING SYSTEM (mm) ===
+    SPACE_XS = 2 * mm   # 2mm - Minimaler Abstand
+    SPACE_S = 4 * mm    # 4mm - Kleiner Abstand
+    SPACE_M = 6 * mm    # 6mm - Standard-Abstand
+    SPACE_L = 8 * mm    # 8mm - Großer Abstand
+    SPACE_XL = 12 * mm  # 12mm - Sehr großer Abstand
+    SPACE_XXL = 16 * mm # 16mm - Section-Trenner
+
+    # === TYPOGRAPHY ===
+    FONT_SIZE_HUGE = 24      # Executive Summary Title
+    FONT_SIZE_XXL = 20       # Hauptüberschrift
+    FONT_SIZE_XL = 16        # Section Heading
+    FONT_SIZE_L = 14         # Subsection
+    FONT_SIZE_M = 12         # KPI-Kachel Wert
+    FONT_SIZE_BASE = 10      # Body Text
+    FONT_SIZE_S = 9          # Secondary Text
+    FONT_SIZE_XS = 8         # Footer/Caption
+    FONT_SIZE_XXS = 7        # Mini-Labels
+
+    # === CARD DESIGN ===
+    CARD_PADDING = 8         # Innerer Abstand in Cards (pt)
+    CARD_RADIUS = 4          # Eckenradius (nur für Charts, PDF-tauglich)
+    CARD_BORDER_WIDTH = 0.5  # Rahmenbreite
+
+    # === GRID SYSTEM ===
+    PAGE_WIDTH = 180 * mm    # Nutzbare Seitenbreite
+    COL_2 = 88 * mm          # 2-Spalten Layout (mit Gutter)
+    COL_3 = 58 * mm          # 3-Spalten Layout
+    GUTTER = 4 * mm          # Abstand zwischen Spalten
+
 class PeakGuardDesign:
-    # KORRIGIERTE PeakGuard Farben
+    # KORRIGIERTE PeakGuard Farben (unverändert)
     PRIMARY = colors.HexColor("#0f1729")      # PeakGuard Dunkelblau
     ACCENT = colors.HexColor("#0da2e7")       # PeakGuard Hellblau
     SUCCESS = colors.HexColor("#28A745")      # Erfolg Grün
     WARNING = colors.HexColor("#FFC107")      # Warnung Gelb
     DANGER = colors.HexColor("#DC3545")       # Kritisch Rot
-    
+
     DARK = colors.HexColor("#1A1A1A")
     GRAY_DARK = colors.HexColor("#4A4A4A")
     GRAY = colors.HexColor("#6C757D")
     GRAY_LIGHT = colors.HexColor("#E9ECEF")
     GRAY_LIGHTER = colors.HexColor("#F8F9FA")
     WHITE = colors.white
-    
+
     # Matplotlib Theme (aktualisiert)
     MPL_COLORS = {
         'primary': '#0da2e7',      # Hellblau für Linien
@@ -61,6 +94,7 @@ class PeakGuardDesign:
     
     @staticmethod
     def setup_mpl_theme():
+        """Modernes Chart-Theme mit mehr Weißraum und reduzierten Linien (v2)"""
         plt.rcParams.update({
             'figure.facecolor': '#FFFFFF',
             'axes.facecolor': '#FAFBFC',
@@ -68,21 +102,22 @@ class PeakGuardDesign:
             'axes.labelcolor': '#1A1A1A',
             'axes.grid': True,
             'grid.color': '#E9ECEF',
-            'grid.linewidth': 0.5,
-            'grid.alpha': 0.6,
+            'grid.linewidth': 0.4,  # Dünner
+            'grid.alpha': 0.5,       # Dezenter
             'xtick.color': '#1A1A1A',
             'ytick.color': '#1A1A1A',
             'text.color': '#1A1A1A',
-            'font.size': 10,
-            'axes.titlesize': 12,
-            'axes.labelsize': 10,
-            'xtick.labelsize': 9,
-            'ytick.labelsize': 9,
-            'legend.fontsize': 9,
-            'figure.titlesize': 14,
-            'lines.linewidth': 2.0,
+            'font.size': DesignTokens.FONT_SIZE_BASE,
+            'axes.titlesize': DesignTokens.FONT_SIZE_L,
+            'axes.labelsize': DesignTokens.FONT_SIZE_BASE,
+            'xtick.labelsize': DesignTokens.FONT_SIZE_S,
+            'ytick.labelsize': DesignTokens.FONT_SIZE_S,
+            'legend.fontsize': DesignTokens.FONT_SIZE_S,
+            'figure.titlesize': DesignTokens.FONT_SIZE_XL,
+            'lines.linewidth': 2.5,  # Etwas dicker für bessere Sichtbarkeit
             'axes.spines.top': False,
             'axes.spines.right': False,
+            'axes.linewidth': 0.8,   # Achsen etwas dicker
         })
 
 PeakGuardDesign.setup_mpl_theme()
@@ -94,12 +129,128 @@ TableData = List[List[object]]
 
 
 @dataclass(frozen=True)
+class ReportProfile:
+    """Report-Variante: lite, standard, pro"""
+    name: str  # "lite", "standard", "pro"
+    include_exec_summary: bool = True
+    include_scenarios: bool = True
+    include_heatmap: bool = True
+    include_peak_cluster: bool = True
+    include_roadmap: bool = True
+    include_top_peaks: bool = True
+    include_phase_unbalance: bool = True
+    include_blk: bool = True
+    include_peak_context: bool = False  # Nur Pro: 12h/3d Fenster
+    include_glossary: bool = False       # Standard/Pro
+    max_pages_target: int = 10          # Richtgröße
+
+
+# Vordefinierte Profile
+PROFILE_LITE = ReportProfile(
+    name="lite",
+    include_scenarios=False,
+    include_peak_cluster=False,
+    include_phase_unbalance=False,
+    include_blk=False,
+    include_glossary=False,
+    max_pages_target=4
+)
+
+PROFILE_STANDARD = ReportProfile(
+    name="standard",
+    include_peak_context=False,
+    include_glossary=True,
+    max_pages_target=10
+)
+
+PROFILE_PRO = ReportProfile(
+    name="pro",
+    include_peak_context=True,
+    include_glossary=True,
+    max_pages_target=16
+)
+
+
+def apply_intelligent_triggers(
+    profile: ReportProfile,
+    savings_eur: float,
+    n_peak_events: int,
+    blk_available: bool,
+    unbalance_available: bool,
+    config: Optional['ReportConfig'] = None,
+) -> ReportProfile:
+    """
+    Wendet intelligente Trigger an, um Module automatisch zu aktivieren/deaktivieren
+
+    Trigger-Regeln (PRD):
+    - Peak-Kontext: Nur wenn Einsparung > config.peak_context_min_savings ODER Peaks > config.peak_context_min_events
+    - BLK: Nur wenn Daten vorhanden UND relevant
+    - Phase-Unbalance: Nur wenn Daten vorhanden
+    """
+    # Default-Config wenn nicht angegeben (wird später definiert)
+    if config is None:
+        config = ReportConfig()  # Inline-Instantiierung
+
+    # Kopie erstellen, um Original nicht zu verändern
+    from dataclasses import replace
+
+    adjusted = replace(profile)
+
+    # Trigger 1: Peak-Kontext nur bei hohem Potenzial (Pro) - konfigurierbar
+    if profile.name == "pro" and profile.include_peak_context:
+        if savings_eur < config.peak_context_min_savings and n_peak_events < config.peak_context_min_events:
+            # Deaktiviere Peak-Kontext, wenn Potenzial gering
+            adjusted = replace(adjusted, include_peak_context=False)
+
+    # Trigger 2: BLK nur wenn verfügbar
+    if profile.include_blk and not blk_available:
+        adjusted = replace(adjusted, include_blk=False)
+
+    # Trigger 3: Phase-Unbalance nur wenn verfügbar
+    if profile.include_phase_unbalance and not unbalance_available:
+        adjusted = replace(adjusted, include_phase_unbalance=False)
+
+    return adjusted
+
+
+@dataclass(frozen=True)
 class Tariffs:
     switch_hours: float = 2500.0
     work_ct_low: float = 8.27
     demand_eur_kw_a_low: float = 19.93
     work_ct_high: float = 4.25
     demand_eur_kw_a_high: float = 120.43
+
+
+@dataclass(frozen=True)
+class ReportConfig:
+    """
+    Zentrale Konfiguration für Report-Parameter (v4)
+    Kann später aus YAML/JSON geladen werden
+    """
+    # Schwellenwerte
+    peak_context_min_savings: float = 5000.0  # €/a - Mindest-Einsparung für Peak-Kontext
+    peak_context_min_events: int = 20          # Mindest-Anzahl Peak-Events
+    unbalance_threshold_kw: float = 3.0        # kW - Unwucht-Schwelle
+    blk_cosphi_threshold: float = 0.9          # cosϕ-Grenzwert
+
+    # Chart-Einstellungen
+    chart_dpi: int = 180
+    chart_width_mm: float = 170.0
+    chart_height_mm: float = 85.0
+
+    # Top-Peaks
+    top_peaks_lite: int = 10
+    top_peaks_standard: int = 10
+    top_peaks_pro: int = 20
+
+    # Farben (optional überschreibbar)
+    custom_primary: Optional[str] = None  # z.B. "#0f1729"
+    custom_accent: Optional[str] = None   # z.B. "#0da2e7"
+
+
+# Standard-Config
+DEFAULT_CONFIG = ReportConfig()
 
 
 @dataclass
@@ -111,6 +262,16 @@ class PeakEventsResult:
     top_months: str
     interpretation: str
     events_df: pd.DataFrame
+    peak_problem_type: str = "Kurzspitzen"  # Neu für Executive Summary
+
+
+@dataclass
+class PeakContextInfo:
+    """Info zu einem einzelnen Peak für Kontext-Analyse (Pro)"""
+    timestamp: pd.Timestamp
+    power_kw: float
+    duration_blocks: int
+    diagnosis: str  # "Gleichzeitigkeit", "Dauerlast", "Anfahrvorgang"
 
 
 @dataclass
@@ -144,50 +305,213 @@ class Recommendation:
 
 
 # ============================================================================
-# CUSTOM STYLES
+# CUSTOM STYLES v2 (modernisiert mit Design-Tokens)
 # ============================================================================
 def get_custom_styles():
     styles = getSampleStyleSheet()
-    
+
+    # Executive Summary - sehr prominent
     styles.add(ParagraphStyle(
-        name='CustomTitle',
+        name='ExecTitle',
         parent=styles['Heading1'],
-        fontSize=20,
+        fontSize=DesignTokens.FONT_SIZE_HUGE,
         textColor=PeakGuardDesign.PRIMARY,
-        spaceAfter=8*mm,
+        spaceAfter=DesignTokens.SPACE_L,
         fontName='Helvetica-Bold',
         alignment=TA_LEFT
     ))
-    
+
+    # KPI-Kachel Wert (große Zahl)
+    styles.add(ParagraphStyle(
+        name='KPIValue',
+        parent=styles['Normal'],
+        fontSize=DesignTokens.FONT_SIZE_XXL,
+        textColor=PeakGuardDesign.PRIMARY,
+        fontName='Helvetica-Bold',
+        alignment=TA_LEFT,
+        leading=24
+    ))
+
+    # KPI-Kachel Label (klein, oben drüber)
+    styles.add(ParagraphStyle(
+        name='KPILabel',
+        parent=styles['Normal'],
+        fontSize=DesignTokens.FONT_SIZE_S,
+        textColor=PeakGuardDesign.GRAY_DARK,
+        fontName='Helvetica',
+        alignment=TA_LEFT,
+        spaceBefore=0,
+        spaceAfter=DesignTokens.SPACE_XS
+    ))
+
+    # Standard Title (v1 Kompatibilität)
+    styles.add(ParagraphStyle(
+        name='CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=DesignTokens.FONT_SIZE_XXL,
+        textColor=PeakGuardDesign.PRIMARY,
+        spaceAfter=DesignTokens.SPACE_L,
+        fontName='Helvetica-Bold',
+        alignment=TA_LEFT
+    ))
+
+    # Section Heading - mehr Weißraum
     styles.add(ParagraphStyle(
         name='CustomHeading2',
         parent=styles['Heading2'],
-        fontSize=14,
+        fontSize=DesignTokens.FONT_SIZE_L,
         textColor=PeakGuardDesign.DARK,
-        spaceBefore=4*mm,
-        spaceAfter=2*mm,
+        spaceBefore=DesignTokens.SPACE_XL,
+        spaceAfter=DesignTokens.SPACE_M,
         fontName='Helvetica-Bold'
     ))
-    
+
+    # Subsection
     styles.add(ParagraphStyle(
         name='CustomHeading3',
         parent=styles['Heading3'],
-        fontSize=12,
+        fontSize=DesignTokens.FONT_SIZE_M,
         textColor=PeakGuardDesign.GRAY_DARK,
-        spaceBefore=3*mm,
-        spaceAfter=2*mm,
+        spaceBefore=DesignTokens.SPACE_M,
+        spaceAfter=DesignTokens.SPACE_S,
         fontName='Helvetica-Bold'
     ))
-    
+
+    # Body - mehr Leading (Zeilenhöhe)
     styles.add(ParagraphStyle(
         name='CustomBody',
         parent=styles['BodyText'],
-        fontSize=9,
+        fontSize=DesignTokens.FONT_SIZE_BASE,
         textColor=PeakGuardDesign.DARK,
+        leading=14  # mehr Durchschuss
+    ))
+
+    # Small Body (für Cards)
+    styles.add(ParagraphStyle(
+        name='BodySmall',
+        parent=styles['BodyText'],
+        fontSize=DesignTokens.FONT_SIZE_S,
+        textColor=PeakGuardDesign.GRAY_DARK,
         leading=12
     ))
-    
+
+    # Caption (unter Charts)
+    styles.add(ParagraphStyle(
+        name='Caption',
+        parent=styles['Normal'],
+        fontSize=DesignTokens.FONT_SIZE_XS,
+        textColor=PeakGuardDesign.GRAY,
+        alignment=TA_LEFT,
+        spaceBefore=DesignTokens.SPACE_XS
+    ))
+
     return styles
+
+# ============================================================================
+# CARD COMPONENTS v2 (moderneres Layout)
+# ============================================================================
+def create_kpi_card(label: str, value: str, subtext: str = "", styles=None) -> Table:
+    """Erstellt eine moderne KPI-Kachel (Card-Design)"""
+    if styles is None:
+        styles = get_custom_styles()
+
+    # Card-Inhalt: Label oben, großer Wert, optional Subtext
+    content = [
+        [Paragraph(label, styles['KPILabel'])],
+        [Paragraph(value, styles['KPIValue'])],
+    ]
+    if subtext:
+        content.append([Paragraph(subtext, styles['BodySmall'])])
+
+    card = Table(
+        content,
+        colWidths=[DesignTokens.COL_3 - 4*mm],  # Padding berücksichtigen
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), PeakGuardDesign.GRAY_LIGHTER),
+            ('BOX', (0, 0), (-1, -1), 1, PeakGuardDesign.GRAY),  # Stärkerer Border v4
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING + 2),
+            ('RIGHTPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING + 2),
+            ('TOPPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING + 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING + 2),
+        ])
+    )
+    return card
+
+
+def create_action_card(priority: str, title: str, description: str, styles=None) -> Table:
+    """Erstellt eine Action-Card für Top-3-Hebel"""
+    if styles is None:
+        styles = get_custom_styles()
+
+    # Farbe nach Priorität
+    prio_color = PeakGuardDesign.SUCCESS  # Default: grün
+    if "invest" in priority.lower():
+        prio_color = PeakGuardDesign.WARNING
+    elif "quick" in priority.lower():
+        prio_color = PeakGuardDesign.SUCCESS
+
+    content = [
+        [Paragraph(f"<b>{priority}</b>", styles['BodySmall'])],
+        [Paragraph(title, styles['CustomHeading3'])],
+        [Paragraph(description, styles['BodySmall'])],
+    ]
+
+    card = Table(
+        content,
+        colWidths=[DesignTokens.COL_3 - 4*mm],
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('BOX', (0, 0), (-1, -1), 1, prio_color),
+            ('LINEABOVE', (0, 0), (-1, 0), 3, prio_color),  # Farbiger Top-Border
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+            ('RIGHTPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+            ('TOPPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+        ])
+    )
+    return card
+
+
+def create_scenario_card(name: str, cap_kw: float, peak_after: float, savings: float, util_hours: float, tariff_label: str, styles=None) -> Table:
+    """Erstellt eine Szenario-Card (Bronze/Silber/Gold) - v2 modernes Design"""
+    if styles is None:
+        styles = get_custom_styles()
+
+    # Farbcodierung nach Paket
+    color_map = {
+        "Bronze": colors.HexColor("#CD7F32"),
+        "Silber": colors.HexColor("#C0C0C0"),
+        "Gold": colors.HexColor("#FFD700"),
+    }
+    border_color = color_map.get(name, PeakGuardDesign.GRAY)
+
+    content = [
+        [Paragraph(f"<b>{name}</b>", styles['CustomHeading3'])],
+        [Paragraph(f"<b>Cap:</b> {fmt_num(cap_kw, 1, 'kW')}", styles['BodySmall'])],
+        [Paragraph(f"<b>Peak nachher:</b> {fmt_num(peak_after, 1, 'kW')}", styles['BodySmall'])],
+        [Paragraph(f"<b>Benutzungsdauer:</b> {fmt_num(util_hours, 0, 'h/a')}", styles['BodySmall'])],
+        [Paragraph(f"<b>Tarif:</b> {tariff_label}", styles['BodySmall'])],
+        [Paragraph(f"<b>Einsparung:</b> {fmt_num(savings, 0, '€/a')}", styles['KPIValue'])],
+    ]
+
+    card = Table(
+        content,
+        colWidths=[DesignTokens.COL_3 - 4*mm],
+        style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('BOX', (0, 0), (-1, -1), 2, border_color),
+            ('LINEABOVE', (0, 0), (-1, 0), 4, border_color),  # Farbiger Top-Border
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+            ('RIGHTPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+            ('TOPPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), DesignTokens.CARD_PADDING),
+        ])
+    )
+    return card
+
 
 # ============================================================================
 # TABELLEN-HELPER (mit modernem Design)
@@ -315,7 +639,20 @@ def create_peaks_table(data: TableData) -> Table:
 
 
 # ============================================================================
-# VISUALISIERUNGEN (Optimiert mit PeakGuard-Design)
+# CHART HELPER
+# ============================================================================
+def add_chart_with_caption(img_path: Path, caption: str, styles, width: float = 170*mm) -> List[Flowable]:
+    """Fügt Chart + Caption als Flowable-Liste hinzu"""
+    elements: List[Flowable] = []
+    elements.append(Image(str(img_path), width=width, height=width*0.5))
+    if caption:
+        elements.append(Spacer(1, DesignTokens.SPACE_XS))
+        elements.append(Paragraph(caption, styles['Caption']))
+    return elements
+
+
+# ============================================================================
+# VISUALISIERUNGEN (Optimiert mit PeakGuard-Design v2)
 # ============================================================================
 def make_timeseries_plot(df_15: pd.DataFrame, cap_kw: float) -> Path:
     """Zeitreihen-Plot mit Cap-Linie"""
@@ -477,6 +814,78 @@ def make_heatmap(df_15: pd.DataFrame) -> Path:
     plt.close()
     return tmp
 
+def make_monthly_peaks_bar(df_15: pd.DataFrame, cap_kw: float) -> Path:
+    """Balkendiagramm: Peaks pro Monat (v2 NEU)"""
+    tmp = Path(_tempfile_path("monthly_peaks.png"))
+    idx = cast(pd.DatetimeIndex, df_15.index)
+    p = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce")
+
+    # Zähle Überschreitungen pro Monat
+    over = (p > cap_kw)
+    monthly_data = pd.DataFrame({
+        'year_month': idx.to_period('M'),
+        'over': over.astype(int),
+        'peak_kw': p
+    })
+
+    # Aggregiere: Count Überschreitungen + Max Peak pro Monat
+    monthly_agg = monthly_data.groupby('year_month').agg({
+        'over': 'sum',
+        'peak_kw': 'max'
+    }).reset_index()
+
+    monthly_agg['month_str'] = monthly_agg['year_month'].astype(str)
+
+    fig, ax = plt.subplots(figsize=(12, 3.5), facecolor='white')
+
+    # Balken: Anzahl Überschreitungen
+    bars = ax.bar(
+        range(len(monthly_agg)),
+        monthly_agg['over'],
+        color=PeakGuardDesign.MPL_COLORS['danger'],
+        alpha=0.7,
+        label='Anzahl 15-min-Blöcke > Cap'
+    )
+
+    # Zweite Y-Achse: Max Peak pro Monat
+    ax2 = ax.twinx()
+    ax2.plot(
+        range(len(monthly_agg)),
+        monthly_agg['peak_kw'],
+        color=PeakGuardDesign.MPL_COLORS['primary'],
+        marker='o',
+        linewidth=2.5,
+        markersize=6,
+        label='Max. Peak des Monats'
+    )
+
+    # Cap-Linie
+    ax2.axhline(cap_kw, color=PeakGuardDesign.MPL_COLORS['warning'],
+                linestyle='--', linewidth=2, alpha=0.8, label=f'Cap ({cap_kw:.1f} kW)')
+
+    ax.set_xlabel('Monat', fontweight='bold', fontsize=11)
+    ax.set_ylabel('Anzahl Überschreitungen', fontweight='bold', fontsize=10, color=PeakGuardDesign.MPL_COLORS['danger'])
+    ax2.set_ylabel('Leistung (kW)', fontweight='bold', fontsize=10, color=PeakGuardDesign.MPL_COLORS['primary'])
+
+    ax.set_xticks(range(len(monthly_agg)))
+    ax.set_xticklabels(monthly_agg['month_str'], rotation=45, ha='right')
+
+    ax.tick_params(axis='y', labelcolor=PeakGuardDesign.MPL_COLORS['danger'])
+    ax2.tick_params(axis='y', labelcolor=PeakGuardDesign.MPL_COLORS['primary'])
+
+    ax.set_title('Peaks pro Monat: Überschreitungen & Max-Werte', fontweight='bold', fontsize=12, pad=15)
+
+    # Legende kombiniert
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, loc='upper left', framealpha=0.95, fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+
 def make_events_scatter(mod1: PeakEventsResult) -> Path:
     """Scatter-Plot: Peak-Ereignisse Dauer vs. Verschiebe-Leistung"""
     tmp = Path(_tempfile_path("events.png"))
@@ -521,6 +930,73 @@ def make_events_scatter(mod1: PeakEventsResult) -> Path:
     return tmp
 
 
+def make_peak_context_plot(df_15: pd.DataFrame, peak_timestamp: pd.Timestamp, window_hours: int, cap_kw: float) -> Path:
+    """
+    Peak-Kontext-Plot: Zeigt Umfeld eines Peaks (12h oder 3d Fenster)
+    Nur für Pro-Profile
+    """
+    tmp = Path(_tempfile_path(f"peak_context_{window_hours}h.png"))
+
+    # Zeitfenster berechnen
+    half_window = pd.Timedelta(hours=window_hours / 2)
+    start = peak_timestamp - half_window
+    end = peak_timestamp + half_window
+
+    # Daten filtern
+    mask = (df_15.index >= start) & (df_15.index <= end)
+    df_window = df_15[mask].copy()
+
+    if df_window.empty:
+        # Fallback: leeres Chart
+        fig, ax = plt.subplots(figsize=(12, 4), facecolor='white')
+        ax.text(0.5, 0.5, "Nicht genügend Daten im Zeitfenster",
+               ha="center", va="center", fontsize=14)
+        ax.axis("off")
+        plt.tight_layout()
+        plt.savefig(tmp, dpi=180, bbox_inches='tight')
+        plt.close()
+        return tmp
+
+    idx = cast(pd.DatetimeIndex, df_window.index)
+    y = pd.to_numeric(cast(pd.Series, df_window["p_kw"]), errors="coerce")
+
+    fig, ax = plt.subplots(figsize=(12, 4), facecolor='white')
+
+    # Hauptlinie
+    ax.plot(idx, y, color=PeakGuardDesign.MPL_COLORS['primary'],
+           linewidth=2.5, label='Leistung (15-min)', zorder=2)
+
+    # Cap-Linie
+    ax.axhline(y=cap_kw, color=PeakGuardDesign.MPL_COLORS['danger'],
+               linestyle='--', linewidth=2, label=f'Cap ({cap_kw:.1f} kW)', alpha=0.8, zorder=1)
+
+    # Peak-Marker (vertikale Linie)
+    ax.axvline(x=peak_timestamp, color=PeakGuardDesign.MPL_COLORS['warning'],
+              linestyle='-', linewidth=3, alpha=0.7, label='Peak-Zeitpunkt', zorder=3)
+
+    # Überschreitungen füllen
+    over_mask = y > cap_kw
+    if over_mask.any():
+        ax.fill_between(idx, y, cap_kw, where=over_mask.values, #type: ignore
+                    color=PeakGuardDesign.MPL_COLORS['danger'], alpha=0.15, zorder=0)
+
+    ax.set_ylabel('Leistung (kW)', fontweight='bold', fontsize=11)
+    ax.set_xlabel('Zeit', fontweight='bold', fontsize=11)
+
+    window_label = f"{window_hours}h" if window_hours < 48 else f"{window_hours//24}d"
+    ax.set_title(f'Peak-Kontext ({window_label}-Fenster um {peak_timestamp:%d.%m.%Y %H:%M})',
+                 fontweight='bold', fontsize=12, pad=15)
+
+    ax.legend(loc='upper right', framealpha=0.95, fontsize=9)
+    ax.tick_params(axis='x', rotation=45)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(tmp, dpi=180, bbox_inches='tight')
+    plt.close()
+    return tmp
+
+
 def make_blk_plot(df_15: pd.DataFrame) -> Path:
     """Blindleistungs-Plot"""
     tmp = Path(_tempfile_path("blk.png"))
@@ -553,6 +1029,143 @@ def make_blk_plot(df_15: pd.DataFrame) -> Path:
     plt.savefig(tmp, dpi=180, bbox_inches='tight')
     plt.close()
     return tmp
+
+# ============================================================================
+# EXECUTIVE SUMMARY BUILDER (v2 - Seite 1)
+# ============================================================================
+def build_glossary(styles) -> List[Flowable]:
+    """
+    Erstellt 1/2-Seite Glossar 'So lesen Sie den Report'
+    Für Standard/Pro-Profile
+    """
+    story: List[Flowable] = []
+
+    story.append(Paragraph("So lesen Sie den Report", styles["CustomHeading2"]))
+    story.append(Spacer(1, DesignTokens.SPACE_M))
+
+    glossary_items = [
+        ("15-min-Mittelwert", "Leistung gemittelt über 15 Minuten. Basis für Netzentgelte und Peak-Shaving. Nicht zu verwechseln mit Spitzenlast (1-Sekunden-Peak)."),
+        ("Cap / Peak-Shaving", "Zielvorgabe: Leistung soll diesen Wert nicht überschreiten. Durch Lastverschiebung oder -abwurf realisierbar."),
+        ("Benutzungsstunden (h/a)", "Energie geteilt durch Peak. Hohe Werte (>2500h) → günstiger Tarif möglich. Niedrig (< 2500h) → teurer Leistungspreis."),
+        ("Verschiebbare kWh", "Energie oberhalb des Caps, die durch Lastmanagement in andere Zeiten verschoben werden müsste."),
+        ("P95 / P90 / P85", "95./90./85. Perzentil der Leistung. Bedeutet: 95%/90%/85% der Zeit liegt die Leistung darunter (Bronze/Silber/Gold)."),
+        ("Peak-Problemtyp", "Kurzspitzen: viele kurze Überschreitungen (≤15 min) → Gleichzeitigkeit vermeiden. Langspitzen: lange Überschreitungen (≥60 min) → Grundlast/Prozess optimieren."),
+    ]
+
+    for term, explanation in glossary_items:
+        story.append(Paragraph(f"<b>{term}:</b> {explanation}", styles['BodySmall']))
+        story.append(Spacer(1, DesignTokens.SPACE_S))
+
+    return story
+
+
+def build_executive_summary(
+    period_str: str,
+    data_quality_str: str,
+    peak_15_kw: float,
+    peak_timestamp: pd.Timestamp,
+    savings_eur: float,
+    problem_type: str,
+    top_3_actions: List[Recommendation],
+    styles,
+) -> List[Flowable]:
+    """
+    Erstellt die Executive Summary (Seite 1)
+    - 3 KPI-Kacheln: Peak, Einsparung, Problem-Typ
+    - Top-3-Hebel als Action-Cards
+    - Data-Quality-Box
+    """
+    story: List[Flowable] = []
+
+    # === HEADER ===
+    story.append(Paragraph("Executive Summary", styles["ExecTitle"]))
+    story.append(Spacer(1, DesignTokens.SPACE_S))
+
+    # === ZEITRAUM & DATENQUALITÄT (kompakt) ===
+    info_text = f"<b>Zeitraum:</b> {period_str} | <b>Datenqualität:</b> {data_quality_str}"
+    story.append(Paragraph(info_text, styles['BodySmall']))
+    story.append(Spacer(1, DesignTokens.SPACE_L))
+
+    # === 3 KPI-KACHELN (nebeneinander) ===
+    peak_time_str = peak_timestamp.strftime("%d.%m.%Y %H:%M") if peak_timestamp else "—"
+
+    kpi_cards = Table(
+        [[
+            create_kpi_card(
+                "Höchster 15-min Peak",
+                fmt_num(peak_15_kw, 1, "kW"),
+                f"am {peak_time_str}",
+                styles
+            ),
+            create_kpi_card(
+                "Einsparpotenzial",
+                fmt_num(savings_eur, 0, "€/Jahr"),
+                "bei optimalem Szenario",
+                styles
+            ),
+            create_kpi_card(
+                "Peak-Problemtyp",
+                problem_type,
+                "dominantes Muster",
+                styles
+            ),
+        ]],
+        colWidths=[DesignTokens.COL_3, DesignTokens.COL_3, DesignTokens.COL_3],
+        style=TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), DesignTokens.GUTTER),
+        ])
+    )
+    story.append(kpi_cards)
+    story.append(Spacer(1, DesignTokens.SPACE_XL))
+
+    # === TOP-3-HEBEL ===
+    story.append(Paragraph("Diese 3 Hebel zuerst", styles["CustomHeading2"]))
+    story.append(Spacer(1, DesignTokens.SPACE_M))
+
+    # Action-Cards nebeneinander (falls 3 vorhanden)
+    if len(top_3_actions) >= 3:
+        action_row = [[
+            create_action_card(
+                top_3_actions[0].priority or "Maßnahme",
+                top_3_actions[0].category,
+                top_3_actions[0].action[:120] + "..." if len(top_3_actions[0].action) > 120 else top_3_actions[0].action,
+                styles
+            ),
+            create_action_card(
+                top_3_actions[1].priority or "Maßnahme",
+                top_3_actions[1].category,
+                top_3_actions[1].action[:120] + "..." if len(top_3_actions[1].action) > 120 else top_3_actions[1].action,
+                styles
+            ),
+            create_action_card(
+                top_3_actions[2].priority or "Maßnahme",
+                top_3_actions[2].category,
+                top_3_actions[2].action[:120] + "..." if len(top_3_actions[2].action) > 120 else top_3_actions[2].action,
+                styles
+            ),
+        ]]
+
+        actions_table = Table(
+            action_row,
+            colWidths=[DesignTokens.COL_3, DesignTokens.COL_3, DesignTokens.COL_3],
+            style=TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), DesignTokens.GUTTER),
+            ])
+        )
+        story.append(actions_table)
+    else:
+        # Fallback: Liste statt Cards
+        for i, action in enumerate(top_3_actions[:3]):
+            story.append(Paragraph(f"<b>{i+1}. {action.category}</b>", styles['CustomHeading3']))
+            story.append(Paragraph(action.action, styles['BodySmall']))
+            story.append(Spacer(1, DesignTokens.SPACE_S))
+
+    return story
+
 
 # ============================================================================
 # HAUPTFUNKTION - PDF Report Builder
@@ -616,8 +1229,10 @@ def build_pdf_report(
     include_reactive: bool = True,
     input_resolution_minutes: Optional[int] = None,
     demand_interval_minutes: int = 15,
+    profile: Optional[ReportProfile] = None,  # NEU: Profil-Support
 ) -> None:
     tariffs = tariffs or Tariffs()
+    profile = profile or PROFILE_STANDARD  # Default: Standard-Profil
     d0 = df.copy()
 
     # --- Parse timestamps ---
@@ -725,14 +1340,28 @@ def build_pdf_report(
         tariffs=tariffs,
     )
 
-    # --- Charts ---
-    figs: List[Path] = [
-        make_timeseries_plot(df_15, cap_kw_sel),
-        make_duration_curve(df_15, cap_kw_sel),
-        make_heatmap(df_15),
-        make_events_scatter(mod1),
-    ]
-    if blk.available:
+    # --- INTELLIGENTE TRIGGER: Profil anpassen basierend auf Daten (nach Berechnungen) ---
+    profile = apply_intelligent_triggers(
+        profile=profile,
+        savings_eur=scenario_sel.savings_eur,
+        n_peak_events=mod1.n_events,
+        blk_available=blk.available,
+        unbalance_available=mod2.available,
+    )
+
+    # --- Charts (profilabhängig) ---
+    figs: List[Path] = []
+
+    if profile.include_heatmap:
+        figs.append(make_timeseries_plot(df_15, cap_kw_sel))
+        figs.append(make_duration_curve(df_15, cap_kw_sel))
+        figs.append(make_heatmap(df_15))
+        figs.append(make_monthly_peaks_bar(df_15, cap_kw_sel))  # NEU: Monatsbalken
+
+    if profile.include_peak_cluster:
+        figs.append(make_events_scatter(mod1))
+
+    if blk.available and profile.include_blk:
         figs.append(make_blk_plot(df_15))
 
     # --- PDF Generation ---
@@ -760,17 +1389,41 @@ def build_pdf_report(
         safe = (text or "—").replace("\n", "<br/>")
         return Paragraph(safe, styles[style_name])
 
-    # === HEADER / TITLE ===
-    story.append(Paragraph("PeakGuard – Lastgang- & Lastspitzen-Report", styles["CustomTitle"]))
-    story.append(Paragraph(f"<font color='#{PeakGuardDesign.GRAY.hexval()[2:]}'>Version 3.1 | Erstellt: {pd.Timestamp.now():%d.%m.%Y %H:%M}</font>", styles["CustomBody"]))
-    story.append(Spacer(1, 6 * mm))
-
-    # === METADATEN TABLE ===
+    # Zeitraum-String (wird mehrfach gebraucht)
     period_str = (
         f"{pd.Timestamp(idx_15.min()):%d.%m.%Y %H:%M} – "
         f"{pd.Timestamp(idx_15.max()):%d.%m.%Y %H:%M} ({duration_hours:.1f} h)"
     )
 
+    # === EXECUTIVE SUMMARY (v2 - Seite 1) ===
+    if profile.include_exec_summary:
+        # Finde Peak-Zeitpunkt
+        peak_idx = pd.to_numeric(df_15["p_kw"], errors="coerce").idxmax()
+        peak_timestamp = pd.Timestamp(peak_idx) if pd.notna(peak_idx) else pd.Timestamp.now()
+
+        # Data Quality String
+        data_quality_str = f"{data_quality} | Abdeckung: {(1-missing_quote)*100:.1f}%"
+
+        exec_summary_story = build_executive_summary(
+            period_str=period_str,
+            data_quality_str=data_quality_str,
+            peak_15_kw=peak_15_kw,
+            peak_timestamp=peak_timestamp,
+            savings_eur=scenario_sel.savings_eur,
+            problem_type=mod1.peak_problem_type,
+            top_3_actions=recs[:3],  # Top-3 Empfehlungen
+            styles=styles,
+        )
+        story.extend(exec_summary_story)
+        story.append(PageBreak())
+
+    # === HEADER / TITLE (nur wenn KEIN Exec Summary) ===
+    if not profile.include_exec_summary:
+        story.append(Paragraph("PeakGuard – Lastgang- & Lastspitzen-Report", styles["CustomTitle"]))
+        story.append(Paragraph(f"<font color='#{PeakGuardDesign.GRAY.hexval()[2:]}'>Version 4.0 | Erstellt: {pd.Timestamp.now():%d.%m.%Y %H:%M}</font>", styles["CustomBody"]))
+        story.append(Spacer(1, DesignTokens.SPACE_M))
+
+    # === METADATEN TABLE ===
     story.append(create_info_table([
         ["Quelle", source_name],
         ["Standort", site_name or "—"],
@@ -783,7 +1436,7 @@ def build_pdf_report(
             f"Missing-Quote: {missing_quote:.1%} | Demand-Basis: {demand_interval_minutes} min",
         ],
     ]))
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, DesignTokens.SPACE_M))
 
     # === KERNKENNZAHLEN ===
     story.append(Paragraph("Kernkennzahlen (Lastgang-Logik: 15-min Mittelwerte)", styles["CustomHeading2"]))
@@ -805,7 +1458,7 @@ def build_pdf_report(
     ])
 
     story.append(create_data_table(rows_kpi))
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, DesignTokens.SPACE_M))
 
     # === PEAK SHAVING ZIEL ===
     story.append(Paragraph("Peak-Shaving Ziel (Cap) & rechnerische Wirkung", styles["CustomHeading2"]))
@@ -831,111 +1484,223 @@ def build_pdf_report(
     ]
 
     story.append(create_data_table(rows_sel, highlight_last=True))
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, DesignTokens.SPACE_M))
 
-    # === WEITERE SZENARIEN ===
-    story.append(Paragraph("Weitere Szenarien (rechnerisch, inkl. Tarifwechsel)", styles["CustomHeading3"]))
+    # === WEITERE SZENARIEN (v2: moderne Cards) ===
+    if profile.include_scenarios and len(pkg_scenarios) >= 3:
+        story.append(Paragraph("Weitere Szenarien (rechnerisch, inkl. Tarifwechsel)", styles["CustomHeading3"]))
+        story.append(Spacer(1, DesignTokens.SPACE_M))
 
-    rows_other: TableData = [["Szenario", "Cap", "Peak nachher", "Benutzungsdauer", "Kosten", "Einsparung"]]
-    for s in pkg_scenarios:
-        red_pct = 0.0
-        if peak_15_kw > 0:
-            red_pct = (1.0 - (float(s.peak_after_kw) / float(peak_15_kw))) * 100.0
+        # Szenarien als 3er-Card-Grid
+        scenario_row = [[
+            create_scenario_card(
+                name=pkg_scenarios[0].name,
+                cap_kw=pkg_scenarios[0].cap_kw,
+                peak_after=pkg_scenarios[0].peak_after_kw,
+                savings=pkg_scenarios[0].savings_eur,
+                util_hours=pkg_scenarios[0].util_hours_after,
+                tariff_label=pkg_scenarios[0].tariff_label_after,
+                styles=styles
+            ),
+            create_scenario_card(
+                name=pkg_scenarios[1].name,
+                cap_kw=pkg_scenarios[1].cap_kw,
+                peak_after=pkg_scenarios[1].peak_after_kw,
+                savings=pkg_scenarios[1].savings_eur,
+                util_hours=pkg_scenarios[1].util_hours_after,
+                tariff_label=pkg_scenarios[1].tariff_label_after,
+                styles=styles
+            ),
+            create_scenario_card(
+                name=pkg_scenarios[2].name,
+                cap_kw=pkg_scenarios[2].cap_kw,
+                peak_after=pkg_scenarios[2].peak_after_kw,
+                savings=pkg_scenarios[2].savings_eur,
+                util_hours=pkg_scenarios[2].util_hours_after,
+                tariff_label=pkg_scenarios[2].tariff_label_after,
+                styles=styles
+            ),
+        ]]
 
-        peak_cell = Paragraph(
-            f"{fmt_num(s.peak_after_kw, 1, 'kW')}<br/><font size=7 color='#{PeakGuardDesign.GRAY.hexval()[2:]}'>↓ {fmt_pct(red_pct, 1)}</font>",
-            styles['CustomBody'],
+        scenarios_table = Table(
+            scenario_row,
+            colWidths=[DesignTokens.COL_3, DesignTokens.COL_3, DesignTokens.COL_3],
+            style=TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), DesignTokens.GUTTER),
+            ])
         )
+        story.append(scenarios_table)
+        story.append(Spacer(1, DesignTokens.SPACE_L))
 
-        rows_other.append([
-            s.cap_label,
-            fmt_num(s.cap_kw, 1, "kW"),
-            peak_cell,
-            f"{fmt_num(s.util_hours_after, 0, 'h/a')}",
-            fmt_num(s.cost_after, 0, "€/a"),
-            fmt_num(s.savings_eur, 0, "€/a"),
-        ])
-    
-    story.append(create_scenario_table(rows_other))
-    story.append(Spacer(1, 6 * mm))
+    # === MODULE 1: Peak-Cluster (nur wenn Profil es vorsieht) ===
+    if profile.include_peak_cluster:
+        story.append(Paragraph("Peak-Cluster & Ursachenmuster", styles["CustomHeading2"]))
+        story.append(Spacer(1, DesignTokens.SPACE_S))
 
-    # === MODULE 1 ===
-    story.append(Paragraph("Modul 1: Peak-Cluster & Shift-Analyse", styles["CustomHeading2"]))
-    story.append(create_data_table([
-        ["Peak-Ereignisse gesamt", str(mod1.n_events)],
-        ["Ø Dauer pro Ereignis", f"{mod1.avg_duration_min:.1f} min".replace(".", ",")],
-        ["Max. Dauer (längster Peak)", f"{mod1.max_duration_min:.1f} min".replace(".", ",")],
-        ["Max. Verschiebe-Leistung", f"{mod1.max_shift_kw:.1f} kW".replace(".", ",")],
-        ["Top-3 Monate (Anzahl)", mod1.top_months],
-        ["Interpretation", p_wrap(mod1.interpretation)],
-    ]))
-    story.append(Spacer(1, 6 * mm))
-
-    # === MODULE 2 ===
-    story.append(Paragraph("Modul 2: Phasen-Symmetrie & Unwucht-Check", styles["CustomHeading2"]))
-    if not mod2.available:
-        story.append(p_wrap("Keine 3-Phasen-Daten vorhanden – Unwucht-Check nicht berechnet."))
-    else:
+        # Kompaktere Darstellung
         story.append(create_data_table([
-            ["Unwucht-Schwelle", "> 3,0 kW (Pmax − Pmin)"],
-            ["Anteil Blöcke > Schwelle", f"{mod2.share_over:.1%}"],
-            ["Max. Unwucht", f"{mod2.max_unbalance_kw:.1f} kW".replace(".", ",")],
-            ["Dominante Phase", mod2.dominant_phase],
-            ["Empfehlung", p_wrap(mod2.recommendation)],
+            ["Peak-Ereignisse gesamt", str(mod1.n_events)],
+            ["Ø Dauer pro Ereignis", f"{mod1.avg_duration_min:.1f} min".replace(".", ",")],
+            ["Max. Verschiebe-Leistung", f"{mod1.max_shift_kw:.1f} kW".replace(".", ",")],
+            ["Problemtyp", mod1.peak_problem_type],
         ]))
-    story.append(Spacer(1, 6 * mm))
+        story.append(Spacer(1, DesignTokens.SPACE_M))
 
-    # === MODULE 3 (BLK) ===
-    story.append(Paragraph("Blindleistung / BLK-Analyse (optional)", styles["CustomHeading2"]))
-    if not blk.available:
-        story.append(p_wrap("Keine cosϕ-/Phasen-Daten vorhanden – Blindleistungsanalyse nicht berechnet."))
-    else:
-        story.append(create_data_table([
-            ["Ratio ΣQ/ΣP", f"{blk.ratio:.3f}".replace(".", ",")],
-            ["15-min Blöcke > cosϕ=0,9", f"{blk.blocks_over} ({blk.share_over:.1%})"],
-            ["Q95 (Empfehlung)", fmt_num(blk.q95, 1, "kvar")],
-            ["Einschätzung", p_wrap(blk.assessment)],
-        ]))
-    story.append(Spacer(1, 6 * mm))
+        # "Was heißt das praktisch?" - Interpretation
+        story.append(Paragraph("<b>Was heißt das praktisch?</b>", styles["CustomHeading3"]))
+        story.append(p_wrap(mod1.interpretation))
+        story.append(Spacer(1, DesignTokens.SPACE_L))
+
+    # === MODULE 2: Phasen (nur wenn verfügbar & Profil) ===
+    if profile.include_phase_unbalance:
+        story.append(Paragraph("Phasen-Symmetrie & Unwucht-Check", styles["CustomHeading2"]))
+        story.append(Spacer(1, DesignTokens.SPACE_S))
+
+        if not mod2.available:
+            story.append(p_wrap("Keine 3-Phasen-Daten vorhanden – Unwucht-Check nicht berechnet."))
+        else:
+            story.append(create_data_table([
+                ["Unwucht-Schwelle", "> 3,0 kW (Pmax − Pmin)"],
+                ["Anteil Blöcke > Schwelle", f"{mod2.share_over:.1%}"],
+                ["Max. Unwucht", f"{mod2.max_unbalance_kw:.1f} kW".replace(".", ",")],
+                ["Dominante Phase", mod2.dominant_phase],
+            ]))
+            story.append(Spacer(1, DesignTokens.SPACE_M))
+            story.append(Paragraph("<b>Was heißt das praktisch?</b>", styles["CustomHeading3"]))
+            story.append(p_wrap(mod2.recommendation))
+
+        story.append(Spacer(1, DesignTokens.SPACE_L))
+
+    # === MODULE 3: Blindleistung (nur wenn verfügbar & Profil) ===
+    if profile.include_blk:
+        story.append(Paragraph("Blindleistung / BLK-Analyse", styles["CustomHeading2"]))
+        story.append(Spacer(1, DesignTokens.SPACE_S))
+
+        if not blk.available:
+            story.append(p_wrap("Keine cosϕ-/Phasen-Daten vorhanden – Blindleistungsanalyse nicht berechnet."))
+        else:
+            story.append(create_data_table([
+                ["Ratio ΣQ/ΣP", f"{blk.ratio:.3f}".replace(".", ",")],
+                ["15-min Blöcke > cosϕ=0,9", f"{blk.blocks_over} ({blk.share_over:.1%})"],
+                ["Q95 (Empfehlung)", fmt_num(blk.q95, 1, "kvar")],
+            ]))
+            story.append(Spacer(1, DesignTokens.SPACE_M))
+            story.append(Paragraph("<b>Was heißt das praktisch?</b>", styles["CustomHeading3"]))
+            story.append(p_wrap(blk.assessment))
+
+        story.append(Spacer(1, DesignTokens.SPACE_L))
 
     # === HANDLUNGSEMPFEHLUNGEN (NEUE SEITE) ===
     story.append(PageBreak())
     story.append(Paragraph("Individuelle Maßnahmen-Roadmap", styles["CustomHeading2"]))
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, DesignTokens.SPACE_XS))
 
     rec_rows = build_recommendations_table_rows(recs, styles)
     story.append(create_recommendations_table(rec_rows))
-    story.append(Spacer(1, 4 * mm))
+    story.append(Spacer(1, DesignTokens.SPACE_S))
 
-    # === TOP 20 LASTSPITZEN ===
-    story.append(PageBreak())
-    story.append(Paragraph("Top 20 Lastspitzen (15-min Mittelwerte)", styles["CustomHeading2"]))
-    story.append(Spacer(1, 2 * mm))
+    # === TOP LASTSPITZEN (profilabhängig) ===
+    if profile.include_top_peaks:
+        # Lite/Standard: Top-10, Pro: Top-20
+        top_n = 10 if profile.name in ["lite", "standard"] else 20
 
-    top_rows = build_top_peaks_rows(df_15, n=20)
-    story.append(create_peaks_table(top_rows))
-    story.append(Spacer(1, 4 * mm))
+        story.append(PageBreak())
+        story.append(Paragraph(f"Top {top_n} Lastspitzen (15-min Mittelwerte)", styles["CustomHeading2"]))
+        story.append(Spacer(1, DesignTokens.SPACE_M))
 
-    # === VISUALISIERUNGEN ===
+        top_rows = build_top_peaks_rows(df_15, n=top_n)
+        story.append(create_peaks_table(top_rows))
+        story.append(Spacer(1, DesignTokens.SPACE_M))
 
-    # KeepTogether verhindert, dass Überschrift alleine steht
-    # === VISUALISIERUNGEN ===
+    # === PEAK-KONTEXT (nur Pro) ===
+    if profile.include_peak_context:
+        story.append(PageBreak())
+        story.append(Paragraph("Peak-Kontext: Detailanalyse Top-3-Peaks", styles["CustomHeading2"]))
+        story.append(Spacer(1, DesignTokens.SPACE_M))
+
+        # Top-3-Peaks analysieren
+        top_peaks = analyze_top_peaks(df_15, cap_kw_sel, n=3)
+
+        for i, peak_info in enumerate(top_peaks, start=1):
+            # Überschrift für Peak
+            story.append(Paragraph(
+                f"Peak #{i}: {peak_info.timestamp:%d.%m.%Y %H:%M} ({fmt_num(peak_info.power_kw, 1, 'kW')})",
+                styles["CustomHeading3"]
+            ))
+            story.append(Spacer(1, DesignTokens.SPACE_S))
+
+            # Diagnose-Text
+            story.append(Paragraph(f"<b>Diagnose:</b> {peak_info.diagnosis}", styles["BodySmall"]))
+            story.append(Spacer(1, DesignTokens.SPACE_M))
+
+            # 12h-Fenster
+            fig_12h = make_peak_context_plot(df_15, peak_info.timestamp, 12, cap_kw_sel)
+            story.extend(add_chart_with_caption(
+                fig_12h,
+                "12-Stunden-Fenster: Zeigt unmittelbares Umfeld des Peaks.",
+                styles,
+                width=170*mm
+            ))
+            story.append(Spacer(1, DesignTokens.SPACE_M))
+
+            # 3-Tage-Fenster
+            fig_3d = make_peak_context_plot(df_15, peak_info.timestamp, 72, cap_kw_sel)
+            story.extend(add_chart_with_caption(
+                fig_3d,
+                "3-Tage-Fenster: Zeigt größeren Kontext (Wochenmuster erkennbar).",
+                styles,
+                width=170*mm
+            ))
+
+            if i < len(top_peaks):
+                story.append(Spacer(1, DesignTokens.SPACE_L))
+
+    # === GLOSSAR (Standard/Pro) ===
+    if profile.include_glossary:
+        story.append(PageBreak())
+        glossary_story = build_glossary(styles)
+        story.extend(glossary_story)
+
+    # === VISUALISIERUNGEN (mit Captions v2) ===
     from reportlab.platypus import KeepTogether
+
+    # Captions für die Charts (v2: dynamisch je nach Profil)
+    chart_captions = []
+    if profile.include_heatmap:
+        chart_captions.extend([
+            "Zeitverlauf der Leistung mit Peak-Shaving Cap. Überschreitungen sind rot markiert.",
+            "Sortierte Leistungswerte (Jahresdauerlinie). Zeigt, wie oft welche Leistung erreicht wird.",
+            "Heatmap: Durchschnittliche Leistung je Wochentag und Uhrzeit. Zeigt typische Lastmuster.",
+            "Peaks pro Monat: Anzahl Überschreitungen (Balken) und maximale Leistung (Linie).",
+        ])
+    if profile.include_peak_cluster:
+        chart_captions.append("Peak-Ereignisse: Dauer vs. benötigte Verschiebeleistung. Größere Punkte = höhere Verschiebeleistung.")
+    if blk.available and profile.include_blk:
+        chart_captions.append("Blindleistungsverlauf mit cosϕ-Grenzwert (0,9). Überschreitungen zeigen Kompensationsbedarf.")
 
     # Erste Grafik mit Überschrift zusammenhalten
     viz_header = [
         Paragraph("Visualisierungen", styles["CustomHeading2"]),
-        Spacer(1, 2 * mm)
+        Spacer(1, DesignTokens.SPACE_M)
     ]
 
     if figs:  # Wenn Grafiken vorhanden
-        viz_header.append(Image(str(figs[0]), width=170 * mm, height=85 * mm))
+        # Erste Chart + Caption
+        first_chart = add_chart_with_caption(figs[0], chart_captions[0] if len(chart_captions) > 0 else "", styles)
+        viz_header.extend(first_chart)
         story.append(KeepTogether(viz_header))
-    
-    # Rest der Grafiken einzeln
-        for img_path in figs[1:]:
-            story.append(Spacer(1, 3 * mm))
-            story.append(Image(str(img_path), width=170 * mm, height=85 * mm))
+
+        # Rest der Grafiken einzeln mit Captions
+        for i, img_path in enumerate(figs[1:], start=1):
+            story.append(Spacer(1, DesignTokens.SPACE_M))
+            chart_elements = add_chart_with_caption(
+                img_path,
+                chart_captions[i] if i < len(chart_captions) else "",
+                styles
+            )
+            story.extend(chart_elements)
 
     doc.build(story, onFirstPage=lambda c, d: add_page_template(c, d, site_name),
                   onLaterPages=lambda c, d: add_page_template(c, d, site_name))
@@ -1088,6 +1853,58 @@ def _missing_quote(idx: pd.DatetimeIndex, resolution_minutes: Optional[int]) -> 
 # ============================================================================
 # BERECHNUNGSMODULE
 # ============================================================================
+def analyze_top_peaks(df_15: pd.DataFrame, cap_kw: float, n: int = 3) -> List[PeakContextInfo]:
+    """
+    Analysiert die Top-N-Peaks und erstellt einfache Diagnosen
+    Für Pro-Profile: Peak-Kontext-Module
+    """
+    p = pd.to_numeric(cast(pd.Series, df_15["p_kw"]), errors="coerce")
+    top_indices = p.nlargest(n).index
+
+    results: List[PeakContextInfo] = []
+
+    for peak_idx in top_indices:
+        peak_ts = pd.Timestamp(peak_idx)
+        peak_kw = float(p.loc[peak_idx])
+
+        # Diagnose: Schaue auf Umfeld (±1h)
+        window = pd.Timedelta(hours=1)
+        start = peak_ts - window
+        end = peak_ts + window
+
+        mask = (df_15.index >= start) & (df_15.index <= end)
+        window_data = p[mask]
+
+        # Einfache Heuristik
+        if len(window_data) < 3:
+            diagnosis = "Isolierter Peak (Datenlücke)"
+        else:
+            mean_window = float(window_data.mean())
+            std_window = float(window_data.std())
+
+            # Gleichzeitigkeit: Peak deutlich über Umfeld, aber kurz
+            over_cap = (window_data > cap_kw).sum()
+            duration_blocks = int(over_cap)
+
+            if duration_blocks <= 2 and (peak_kw - mean_window) > cap_kw * 0.2:
+                diagnosis = "Gleichzeitigkeit (kurzer Peak, deutlich über Umfeld)"
+            elif duration_blocks >= 8:
+                diagnosis = "Dauerlast (lange Überschreitung, ≥2h)"
+            elif std_window > cap_kw * 0.15:
+                diagnosis = "Anfahrvorgang (starke Schwankungen im Umfeld)"
+            else:
+                diagnosis = "Normaler Lastgang (moderate Schwankung)"
+
+        results.append(PeakContextInfo(
+            timestamp=peak_ts,
+            power_kw=peak_kw,
+            duration_blocks=duration_blocks if 'duration_blocks' in locals() else 0,
+            diagnosis=diagnosis
+        ))
+
+    return results
+
+
 def compute_peak_events(df_15: pd.DataFrame, cap_kw: float, interval_minutes: int = 15) -> PeakEventsResult:
     over = (pd.to_numeric(df_15["p_kw"], errors="coerce") > float(cap_kw)).fillna(False).to_numpy(dtype=bool)
     idx = cast(pd.DatetimeIndex, df_15.index)
@@ -1151,18 +1968,27 @@ def compute_peak_events(df_15: pd.DataFrame, cap_kw: float, interval_minutes: in
         top_months = ", ".join([f"{m}: {int(c)}" for m, c in top.items()])
 
     share_short = float((pd.to_numeric(ev["duration_min"], errors="coerce") <= float(interval_minutes)).mean()) if n_events > 0 else 0.0
+    share_long = float((pd.to_numeric(ev["duration_min"], errors="coerce") >= 60.0).mean()) if n_events > 0 else 0.0
+
+    # Peak-Problemtyp bestimmen (für Executive Summary)
     if n_events == 0:
         interp = "Keine Peak-Ereignisse oberhalb des Caps erkannt."
+        problem_type = "Keine Peaks"
     elif share_short >= 0.6:
         interp = (
             "Viele kurze Lastspitzen (≈ ein 15-min Block) → gut geeignet für Lastmanagement/Sequenzierung.\n"
             "Typische Maßnahme: Verbraucher zeitlich staffeln oder harte Gleichzeitigkeit vermeiden."
         )
-    else:
+        problem_type = "Kurzspitzen"
+    elif share_long >= 0.4:
         interp = (
             "Signifikanter Anteil längerer Überschreitungen → Hinweis auf Dauerlasten.\n"
             "Typische Maßnahme: Prozess/Grundlast prüfen (z. B. Kühlung, Heizung, Druckluft, Ofenphasen)."
         )
+        problem_type = "Langspitzen / Grundlast"
+    else:
+        interp = "Gemischtes Muster: sowohl kurze als auch längere Peak-Ereignisse."
+        problem_type = "Gemischtes Muster"
 
     return PeakEventsResult(
         n_events=n_events,
@@ -1172,6 +1998,7 @@ def compute_peak_events(df_15: pd.DataFrame, cap_kw: float, interval_minutes: in
         top_months=top_months,
         interpretation=interp,
         events_df=ev,
+        peak_problem_type=problem_type,
     )
 
 
